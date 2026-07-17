@@ -47,6 +47,7 @@
       <div class="listing-filters">
         <select id="listingLocationFilter"><option value="">All locations</option></select>
         <select id="listingTypeFilter"><option value="">All property types</option></select>
+        <select id="listingSubtypeFilter"><option value="">All property subtypes</option></select>
         <select id="listingTenureFilter"><option value="">All tenure</option><option>Freehold</option><option>Leasehold</option></select>
         <select id="listingPriceFilter"><option value="">All prices</option><option value="0-300000">Below RM300k</option><option value="300000-500000">RM300k–500k</option><option value="500000-800000">RM500k–800k</option><option value="800000-1000000">RM800k–1m</option><option value="1000000-2000000">RM1m–2m</option><option value="2000000-Infinity">Above RM2m</option></select>
       </div>
@@ -113,7 +114,7 @@
     <label>Tenure<select name="tenure" required><option value="">Choose tenure</option><option>Freehold</option><option>Leasehold</option></select></label>
     <div class="size-fields"><label>Remaining lease (years)<input name="leaseYears" type="number" placeholder="67"></label><label>Lease expiry year<input name="leaseExpiry" type="number" min="1900" max="2199" placeholder="2099"></label></div>
     <label>Lot type<select name="lotType"><option>Intermediate Lot</option><option>Corner Lot</option><option>End Lot</option><option>Not Applicable</option></select></label>
-    <label>Storeys<select name="storeys"><option>Single Storey</option><option>1.5 Storey</option><option>Double Storey</option><option>2.5 Storey</option><option>3 Storey</option><option>3.5 Storey</option><option>High-rise</option><option>Not Applicable</option></select></label>
+    <label>Property subtype<select name="storeys"><option>1 Storey</option><option>1.5 Storey</option><option>2 Storey</option><option>2.5 Storey</option><option>3 Storey</option><option>3.5 Storey</option><option>4 Storey</option><option>High-rise</option><option>Not Applicable</option></select></label>
     <label>Deal<select name="deal"><option>For Sale</option><option>For Rent</option></select></label>
     <label>Price / Rental (RM)<input name="price" type="number" required placeholder="430000"></label>
     <div class="size-fields"><label>Land size (sq ft)<input name="landSize" type="number" placeholder="1540"></label><label>Built-up (sq ft)<input name="builtUp" type="number" placeholder="1800"></label></div>
@@ -131,6 +132,6 @@
   <dialog id="importListingDialog"><form method="dialog" id="importListingForm"><h3>Paste from WhatsApp</h3><p class="dialog-help">Copy 整段房产资料贴进来，我会自动拆成 Listing fields。</p><textarea id="whatsappListingText" rows="13" required placeholder="FOR SALE\nDouble Storey Terrace...\nFreehold\nLand 22x70\n4 Bedrooms 3 Bathrooms\nRM430,000"></textarea><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="parseListingBtn">Import</button></div></form></dialog>
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><input name="amount" type="number" placeholder="Deal price RM"><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <div id="toast" class="toast"></div>
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>
