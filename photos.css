@@ -1,0 +1,36 @@
+.listing-thumb {
+  width: 60px;
+  height: 60px;
+  border-radius: 13px;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+.photo-upload {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.photo-upload small { font-size: 11px; }
+.photo-preview-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.photo-preview-grid img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:10px; border:1px solid var(--line); }
+.listing-photo-wrap { position:relative; flex:0 0 auto; }
+.listing-photo-wrap span { position:absolute; right:4px; bottom:4px; padding:2px 5px; border-radius:8px; color:#fff; background:rgba(0,0,0,.65); font-size:10px; }
+.listing-tail { display:grid; justify-items:end; gap:7px; flex:0 0 auto; }
+.share-listing { border:0; border-radius:9px; padding:6px 10px; background:#e7f1eb; color:#12372a; font-weight:700; }
+.listing-item.clickable { cursor:pointer; position:relative; }
+.listing-check { align-self:center; flex:0 0 auto; }
+.listing-check input { width:19px; height:19px; accent-color:#12372a; }
+.listing-bulk { position:sticky; top:4px; z-index:5; display:flex; justify-content:space-between; align-items:center; margin:0 0 12px; padding:10px 12px; border-radius:12px; background:#12372a; color:#fff; box-shadow:0 5px 18px #12372a33; }
+.listing-bulk button { border:0; border-radius:9px; padding:8px 11px; background:#d6f06c; color:#12372a; font-weight:800; }
+.listing-head-actions { display:flex; gap:7px; }
+.listing-head-actions button { white-space:nowrap; }
+.dialog-help { color:var(--muted); font-size:13px; margin-top:-4px; }
+.dialog-close { position:absolute; top:12px; right:12px; width:38px; height:38px; padding:0; border:0; border-radius:50%; background:#edf1ee; color:#173128; font-size:26px; line-height:1; cursor:pointer; }
+#listingDialog form { position:relative; padding-top:25px; }
+#whatsappListingText { width:100%; }
+.bottom-nav button { width: min(20%, 164px); }
+.listing-filters { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:13px; }
+.listing-filters select { padding:10px; font-size:12px; }
+.size-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+@media(max-width:400px){.listing-filters{grid-template-columns:1fr}.size-fields{grid-template-columns:1fr}}

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#12372a">
+  <title>Agent Daily</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="cases.css">
+  <link rel="stylesheet" href="photos.css?v=12">
+</head>
+<body>
+  <header class="topbar">
+    <div><small>PROPERTY WORKSPACE</small><h1>Agent Daily</h1></div>
+    <div class="sync-wrap"><span id="syncStatus">Local</span><button class="icon-btn" id="exportBtn" title="备份资料">↗</button></div>
+  </header>
+
+  <main>
+    <section id="dashboard" class="page active">
+      <div class="hero">
+        <p id="todayLabel"></p>
+        <h2>Morning, Tong Xen.</h2>
+        <span>先追 lead，咖啡等下再讲。</span>
+      </div>
+      <div class="stats">
+        <article><b id="leadCount">0</b><span>Active leads</span></article>
+        <article class="alert"><b id="dueCount">0</b><span>Follow-up due</span></article>
+        <article><b id="caseCount">0</b><span>Pending cases</span></article>
+      </div>
+      <div class="section-head"><h3>今天要做</h3><button data-go="leads">View all</button></div>
+      <div id="dueList" class="stack"></div>
+      <button class="quick" data-go="copywriter"><span>✦</span><div><b>生成房产文案</b><small>Facebook 格式 + WhatsApp CTA</small></div><i>›</i></button>
+      <button class="quick" data-go="calculator"><span>⌁</span><div><b>贷款 & 佣金计算</b><small>Monthly instalment / commission</small></div><i>›</i></button>
+      <button class="quick" data-go="cases"><span>✓</span><div><b>Case Tracker</b><small>Loan · S&amp;P · Claim progress</small></div><i>›</i></button>
+    </section>
+
+    <section id="leads" class="page">
+      <div class="section-head title"><h2>客户 Leads</h2><button class="primary" id="addLeadBtn">＋ Add</button></div>
+      <input class="search" id="leadSearch" placeholder="Search name, property...">
+      <div id="leadList" class="stack"></div>
+    </section>
+
+    <section id="listings" class="page">
+      <div class="section-head title"><h2>房源库</h2><div class="listing-head-actions"><button id="importListingBtn">Paste WhatsApp</button><button class="primary" id="addListingBtn">＋ Add</button></div></div>
+      <div class="listing-filters">
+        <select id="listingLocationFilter"><option value="">All locations</option></select>
+        <select id="listingTypeFilter"><option value="">All property types</option></select>
+        <select id="listingTenureFilter"><option value="">All tenure</option><option>Freehold</option><option>Leasehold</option></select>
+        <select id="listingPriceFilter"><option value="">All prices</option><option value="0-300000">Below RM300k</option><option value="300000-500000">RM300k–500k</option><option value="500000-800000">RM500k–800k</option><option value="800000-1000000">RM800k–1m</option><option value="1000000-2000000">RM1m–2m</option><option value="2000000-Infinity">Above RM2m</option></select>
+      </div>
+      <div id="listingBulkBar" class="listing-bulk hidden"><b><span id="listingSelectedCount">0</span> selected</b><button id="shareSelectedListings">Share selected</button></div>
+      <div id="listingList" class="stack"></div>
+    </section>
+
+    <section id="cases" class="page">
+      <div class="section-head title"><h2>Case Tracker</h2><button class="primary" id="addCaseBtn">＋ Add</button></div>
+      <div class="case-summary" id="caseSummary"></div>
+      <div class="case-filters">
+        <button class="active" data-case-filter="All">All</button><button data-case-filter="Pending Loan">Loan</button><button data-case-filter="Pending Sign S&P">Sign S&amp;P</button><button data-case-filter="Pending Claim">Claim</button><button data-case-filter="S&P Signed and Claimed">Done</button><button data-case-filter="Others">Others</button>
+      </div>
+      <div id="caseList" class="stack"></div>
+    </section>
+
+    <section id="copywriter" class="page">
+      <div class="section-head title"><h2>文案生成器</h2></div>
+      <div class="card form-grid">
+        <label>交易类型<select id="cwDeal"><option>For Sale</option><option>For Rent</option></select></label>
+        <label>房产类型<input id="cwType" placeholder="Double Storey Terrace"></label>
+        <label>地点<input id="cwLocation" placeholder="Taman Malim Jaya, Melaka"></label>
+        <label>价格 (RM)<input id="cwPrice" type="number" placeholder="430000"></label>
+        <label class="full">卖点（每行一个）<textarea id="cwFeatures" rows="6" placeholder="Freehold&#10;Land size 22 x 70&#10;4 bedrooms, 3 bathrooms&#10;Renovated kitchen"></textarea></label>
+        <label class="full">补充说明<textarea id="cwNote" rows="2" placeholder="Owner motivated / viewing arrangement"></textarea></label>
+        <button class="primary full big" id="generateBtn">✦ Generate Facebook Copy</button>
+      </div>
+      <div id="copyOutputWrap" class="card output hidden"><div class="section-head"><h3>Ready to post</h3><button id="copyBtn">Copy</button></div><pre id="copyOutput"></pre></div>
+    </section>
+
+    <section id="calculator" class="page">
+      <div class="section-head title"><h2>Quick Calculator</h2></div>
+      <div class="tabs"><button class="active" data-calc="loan">房贷</button><button data-calc="commission">佣金</button></div>
+      <div id="loanCalc" class="card form-grid calc-panel">
+        <label>Property price (RM)<input id="loanPrice" type="number" value="500000"></label>
+        <label>Loan margin (%)<input id="loanMargin" type="number" value="90"></label>
+        <label>Interest p.a. (%)<input id="loanRate" type="number" step="0.01" value="4.2"></label>
+        <label>Tenure (years)<input id="loanYears" type="number" value="35"></label>
+        <div class="result full"><span>Estimated monthly instalment</span><strong id="monthlyResult">RM 0</strong><small id="loanAmountResult"></small></div>
+      </div>
+      <div id="commissionCalc" class="card form-grid calc-panel hidden">
+        <label>Deal price (RM)<input id="dealPrice" type="number" value="500000"></label>
+        <label>Agency fee (%)<input id="feeRate" type="number" step="0.1" value="3"></label>
+        <label>Your share (%)<input id="shareRate" type="number" value="70"></label>
+        <label>SST (%)<input id="sstRate" type="number" value="8"></label>
+        <div class="result full"><span>Estimated gross commission</span><strong id="commissionResult">RM 0</strong><small id="sstResult"></small></div>
+      </div>
+      <p class="disclaimer">Estimates only. Bank approval, interest and fees vary.</p>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="active" data-go="dashboard"><span>⌂</span>Today</button>
+    <button data-go="leads"><span>♙</span>Leads</button>
+    <button data-go="listings"><span>▤</span>Listings</button>
+    <button data-go="cases"><span>✓</span>Cases</button>
+    <button data-go="copywriter"><span>✦</span>Content</button>
+  </nav>
+
+  <dialog id="leadDialog"><form method="dialog" id="leadForm"><button type="button" class="dialog-close" id="closeLeadDialog" aria-label="Close">×</button><h3 id="leadDialogTitle">New Lead</h3><input name="name" required placeholder="Client name"><input name="phone" placeholder="Phone / WhatsApp"><input name="property" required placeholder="Interested property / requirement"><select name="stage"><option>New enquiry</option><option>Contacted</option><option>Viewing</option><option>Negotiating</option><option>Loan processing</option></select><div class="size-fields"><label>Budget min (RM)<input name="budgetMin" type="number" placeholder="200000"></label><label>Budget max (RM)<input name="budgetMax" type="number" placeholder="500000"></label></div><label>Preferred location<input name="preferredLocation" list="listingLocationOptions" placeholder="e.g. Batu Berendam"></label><label>Property type<select name="preferredType" id="leadPropertyType"></select></label><label>Minimum bedrooms<select name="minBedrooms"><option value="">Any</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label><label>Next follow-up<input name="followUp" type="date" required></label><textarea name="note" placeholder="Notes"></textarea><input name="id" type="hidden"><section id="leadTools" class="lead-tools hidden"><div class="lead-actions"><button type="button" id="leadWhatsApp">WhatsApp</button><button type="button" data-snooze="1">+1 day</button><button type="button" data-snooze="3">+3 days</button><button type="button" data-snooze="7">+7 days</button></div><h4>Matching listings</h4><div id="leadMatches"></div><h4>Follow-up history</h4><div class="timeline-compose"><input id="timelineNote" placeholder="Called / replied / viewing arranged"><button type="button" id="addTimeline">Add</button></div><div id="leadTimeline" class="timeline"></div></section><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveLead">Save changes</button></div></form></dialog>
+  <dialog id="listingDialog"><form method="dialog" id="listingForm"><button type="button" class="dialog-close" id="closeListingDialog" aria-label="Close">×</button><h3 id="listingDialogTitle">New Listing</h3><input name="id" type="hidden">
+    <label>Location<input name="location" required id="listingLocation" list="listingLocationOptions" placeholder="Type or choose location"><datalist id="listingLocationOptions"></datalist></label>
+    <label>Property type<select name="propertyType" required id="listingPropertyType"></select></label>
+    <label>Tenure<select name="tenure" required><option value="">Choose tenure</option><option>Freehold</option><option>Leasehold</option></select></label>
+    <div class="size-fields"><label>Remaining lease (years)<input name="leaseYears" type="number" placeholder="67"></label><label>Lease expiry year<input name="leaseExpiry" type="number" min="1900" max="2199" placeholder="2099"></label></div>
+    <label>Lot type<select name="lotType"><option>Intermediate Lot</option><option>Corner Lot</option><option>End Lot</option><option>Not Applicable</option></select></label>
+    <label>Storeys<select name="storeys"><option>Single Storey</option><option>1.5 Storey</option><option>Double Storey</option><option>2.5 Storey</option><option>3 Storey</option><option>3.5 Storey</option><option>High-rise</option><option>Not Applicable</option></select></label>
+    <label>Deal<select name="deal"><option>For Sale</option><option>For Rent</option></select></label>
+    <label>Price / Rental (RM)<input name="price" type="number" required placeholder="430000"></label>
+    <div class="size-fields"><label>Land size (sq ft)<input name="landSize" type="number" placeholder="1540"></label><label>Built-up (sq ft)<input name="builtUp" type="number" placeholder="1800"></label></div>
+    <label>Bedrooms<select name="bedrooms"><option>N/A</option><option>Studio</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6+</option></select></label>
+    <label>Bathrooms<select name="bathrooms"><option>N/A</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5+</option></select></label>
+    <label>Car parks<input name="carParks" type="number" placeholder="2"></label>
+    <label>Furnishing / 家具<select name="furnishing"><option>Not Specified</option><option>Unfurnished</option><option>Partly Furnished</option><option>Fully Furnished</option></select></label>
+    <label>Renovation / 装修<select name="renovation"><option>Not Specified</option><option>Original Condition</option><option>Partly Renovated</option><option>Fully Renovated</option></select></label>
+    <label>Title type<select name="titleType"><option>Not Specified</option><option>Individual</option><option>Strata</option><option>Master Title</option></select></label>
+    <label>Land title<select name="landTitle"><option>Not Specified</option><option>Residential</option><option>Commercial</option><option>Industrial</option><option>Agricultural</option></select></label>
+    <label>Bumi lot<select name="bumiLot"><option>Not Specified</option><option>Yes</option><option>No</option></select></label>
+    <label>Facing<select name="facing"><option>Not Specified</option><option>North</option><option>North East</option><option>East</option><option>South East</option><option>South</option><option>South West</option><option>West</option><option>North West</option></select></label>
+    <label>WhatsApp original text<textarea name="rawText" rows="4" placeholder="Imported text will stay here"></textarea></label>
+    <label class="photo-upload">Listing photos<input name="photoFile" id="listingPhoto" type="file" accept="image/*" multiple><small>最多 10 张，照片会自动压缩并保存在这台手机</small></label><div id="listingPhotoPreview" class="photo-preview-grid hidden"></div><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveListing">Save</button></div></form></dialog>
+  <dialog id="importListingDialog"><form method="dialog" id="importListingForm"><h3>Paste from WhatsApp</h3><p class="dialog-help">Copy 整段房产资料贴进来，我会自动拆成 Listing fields。</p><textarea id="whatsappListingText" rows="13" required placeholder="FOR SALE\nDouble Storey Terrace...\nFreehold\nLand 22x70\n4 Bedrooms 3 Bathrooms\nRM430,000"></textarea><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="parseListingBtn">Import</button></div></form></dialog>
+  <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><input name="amount" type="number" placeholder="Deal price RM"><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
+  <div id="toast" class="toast"></div>
+  <script src="app.js?v=17"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: property-agent-mini
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python3 server.py
+    healthCheckPath: /
+
