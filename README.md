@@ -1,4 +1,4 @@
-# Agent Daily
+# Mari 好房
 
 Mobile-first mini app for a Melaka property agent. v17 keeps an offline browser copy and syncs leads, listings and cases to the included server API. The server stores shared listings in `shares.json` and workspace state in `agent-state.json`.
 
