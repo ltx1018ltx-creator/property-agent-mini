@@ -66,6 +66,11 @@
 
     <section id="copywriter" class="page">
       <div class="section-head title"><h2>文案生成器</h2></div>
+      <div class="card raw-copy-card">
+        <label><b>Paste raw property info</b><small>WhatsApp、owner 或 co-broke 的整段资料直接丢进来</small><textarea id="cwRaw" rows="12" placeholder="FOR SALE&#10;Double Storey Terrace at Bukit Katil&#10;Freehold | 4 Bedrooms 3 Bathrooms&#10;Land 22 x 70&#10;Fully renovated&#10;RM430,000"></textarea></label>
+        <button class="primary big" id="analyzeCopyBtn">✦ Analyze &amp; Generate Copy</button>
+      </div>
+      <p class="or-divider">或自己调整资料</p>
       <div class="card form-grid">
         <label>交易类型<select id="cwDeal"><option>For Sale</option><option>For Rent</option></select></label>
         <label>房产类型<input id="cwType" placeholder="Double Storey Terrace"></label>
@@ -132,6 +137,6 @@
   <dialog id="importListingDialog"><form method="dialog" id="importListingForm"><h3>Paste from WhatsApp</h3><p class="dialog-help">Copy 整段房产资料贴进来，我会自动拆成 Listing fields。</p><textarea id="whatsappListingText" rows="13" required placeholder="FOR SALE\nDouble Storey Terrace...\nFreehold\nLand 22x70\n4 Bedrooms 3 Bathrooms\nRM430,000"></textarea><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="parseListingBtn">Import</button></div></form></dialog>
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><input name="amount" type="number" placeholder="Deal price RM"><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <div id="toast" class="toast"></div>
-  <script src="app.js?v=21"></script>
+  <script src="app.js?v=22"></script>
 </body>
 </html>

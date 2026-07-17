@@ -103,13 +103,20 @@ $('#addCaseBtn').onclick=()=>{const f=$('#caseForm');f.reset();f.elements.update
 $('#saveCase').onclick=e=>{e.preventDefault();const f=$('#caseForm');if(!f.reportValidity())return;const x=Object.fromEntries(new FormData(f));if(x.id){const i=db.cases.findIndex(c=>String(c.id)===x.id);db.cases[i]={...db.cases[i],...x,id:Number(x.id)}}else db.cases.unshift({...x,id:Date.now()});$('#caseDialog').close();save();toast('Case updated')};
 window.editCase=id=>{const x=db.cases.find(c=>c.id===id),f=$('#caseForm');Object.entries(x).forEach(([k,v])=>{if(f.elements[k])f.elements[k].value=v});$('#caseDialogTitle').textContent='Update Case';$('#caseDialog').showModal()};
 $$('[data-case-filter]').forEach(b=>b.onclick=()=>{$$('[data-case-filter]').forEach(x=>x.classList.toggle('active',x===b));caseFilter=b.dataset.caseFilter;renderCases()});
-$('#generateBtn').onclick=()=>{
+function generateCopy(){
  const deal=$('#cwDeal').value,type=$('#cwType').value.trim(),loc=$('#cwLocation').value.trim(),price=Number($('#cwPrice').value),features=$('#cwFeatures').value.split('\n').map(x=>x.trim()).filter(Boolean),note=$('#cwNote').value.trim();
  if(!type||!loc||!price)return toast('Type、地点和价格先填好');
  const rent=deal==='For Rent', suffix=(loc.split(',')[0]+' '+type+' '+(rent?price:Math.round(price/1000)+'k')).toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,45);
  const icon=rent?'🔑':'🏡', action=rent?'出租':'出售';
  const text=`${icon} ${deal.toUpperCase()}｜${loc} ${type}\n\n正在寻找${rent?'舒适住家／合适单位':'自住或投资房产'}的朋友，可以看看这一间👇\n\n📍 ${loc}\n🏠 ${type}\n\nProperty Details：\n${features.map(x=>'✅ '+x).join('\n')}${note?'\n\n💡 '+note:''}\n\n💰 ${rent?'Rental':'Selling Price'}：${money(price)}${rent?' / month':''}\n\n有兴趣索取完整资料、照片或预约看房，欢迎 PM / WhatsApp 联系我。\n\n🧒 Tong Xen [REN 51905]\n📲 www.wasap.my/60166286918/${suffix}\n☎️ 0166286918\n\n#TheRoofRealtySdnBhd E(1)1605/5 | 03-79837798\n\n#MelakaProperty #马六甲房地产 #${type.replace(/\s/g,'')} #房产${action}`;
  $('#copyOutput').textContent=text;$('#copyOutputWrap').classList.remove('hidden');$('#copyOutputWrap').scrollIntoView({behavior:'smooth'});
+}
+$('#generateBtn').onclick=generateCopy;
+$('#analyzeCopyBtn').onclick=()=>{
+ const raw=$('#cwRaw').value.trim();if(!raw)return toast('先 paste raw property info');const x=parseWhatsAppListing(raw),usable=v=>v&&v!=='N/A'&&v!=='Not Applicable'&&v!=='Not Specified';
+ const type=[x.storeys,x.propertyType].filter(usable).join(' '),features=[[x.tenure,''],[x.landSize,'Land size ', ' sqft'],[x.builtUp,'Built-up ',' sqft'],[x.bedrooms,'',' bedrooms'],[x.bathrooms,'',' bathrooms'],[x.carParks,'',' car parks'],[x.lotType,''],[x.furnishing,''],[x.renovation,''],[x.titleType,'',' title'],[x.landTitle,'',' title'],[x.bumiLot==='Yes'?'Bumi Lot':x.bumiLot==='No'?'Non-Bumi Lot':'',''],[x.facing,'Facing ']].filter(v=>usable(v[0])).map(v=>(v[1]||'')+v[0]+(v[2]||''));
+ $('#cwDeal').value=x.deal;$('#cwType').value=type;$('#cwLocation').value=x.location;$('#cwPrice').value=x.price;$('#cwFeatures').value=features.join('\n');$('#cwNote').value='';
+ if(!type||!x.location||!x.price)return toast('有资料抓不到，下面补一下再 Generate');generateCopy();toast('Raw info analyzed · 文案 ready');
 };
 $('#copyBtn').onclick=async()=>{await navigator.clipboard.writeText($('#copyOutput').textContent);toast('文案 copied，可以开工了')};
 function calcLoan(){const p=+$(`#loanPrice`).value,m=+$(`#loanMargin`).value/100,r=+$(`#loanRate`).value/1200,n=+$(`#loanYears`).value*12,L=p*m,x=r?L*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1):L/n;$('#monthlyResult').textContent=money(x);$('#loanAmountResult').textContent=`Loan amount: ${money(L)}`}
