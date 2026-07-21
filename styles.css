@@ -84,6 +84,10 @@ dialog h3{margin:0 0 5px}
 .sync-wrap span{font-size:10px;color:#bfe0d1}
 .sync-wrap span.syncing{color:#ffe49a}
 .sync-wrap span.error{color:#ffb4a0}
+.admin-top{border:1px solid #ffffff55;background:#ffffff18;color:#fff;border-radius:9px;padding:7px 9px;font-weight:800;font-size:11px}
+.eyebrow{display:block;color:var(--muted);font-size:9px;letter-spacing:1.5px;margin-bottom:4px}
+.admin-stats{margin-top:0}.agent-item{cursor:pointer}.agent-item .avatar{background:#e7efe9}.agent-counts{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.agent-counts span{font-size:10px;padding:4px 7px;border-radius:99px;background:var(--cream);color:var(--green)}
+.admin-dialog{width:min(94vw,680px)}.admin-dialog-body{padding:22px}.admin-agent-meta{color:var(--muted);font-size:12px;margin:6px 0 18px}.admin-detail-section{margin-top:18px}.admin-detail-section h4{margin:0 0 8px}.admin-readonly-row{padding:11px 0;border-bottom:1px solid var(--line)}.admin-readonly-row b,.admin-readonly-row small{display:block}.admin-readonly-row small{color:var(--muted);margin-top:3px}.admin-dialog .empty{padding:16px}
 .lead-tools{border-top:1px solid var(--line);padding-top:12px}
 .lead-tools h4{margin:14px 0 8px}
 .lead-actions{display:flex;gap:6px;overflow:auto}

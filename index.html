@@ -26,7 +26,7 @@
   </section>
   <header class="topbar">
     <div><small>PROPERTY WORKSPACE</small><h1>Mari 好房</h1></div>
-    <div class="sync-wrap"><span id="userLabel"></span><span id="syncStatus">Local</span><button class="icon-btn" id="exportBtn" title="备份资料">↗</button><button class="icon-btn" id="logoutBtn" title="Log out">⇥</button></div>
+    <div class="sync-wrap"><span id="userLabel"></span><span id="syncStatus">Local</span><button class="admin-top hidden" id="adminBtn" title="Admin dashboard">Admin</button><button class="icon-btn" id="exportBtn" title="备份资料">↗</button><button class="icon-btn" id="logoutBtn" title="Log out">⇥</button></div>
   </header>
 
   <main>
@@ -114,6 +114,13 @@
       </div>
       <p class="disclaimer">Estimates only. Bank approval, interest and fees vary.</p>
     </section>
+
+    <section id="admin" class="page">
+      <div class="section-head title"><div><small class="eyebrow">READ-ONLY ADMIN</small><h2>Agent Overview</h2></div><button id="refreshAdminBtn">Refresh</button></div>
+      <div id="adminSummary" class="stats admin-stats"></div>
+      <input class="search" id="adminSearch" placeholder="Search agent name or email...">
+      <div id="adminAgentList" class="stack"><div class="empty">Loading agents…</div></div>
+    </section>
   </main>
 
   <nav class="bottom-nav">
@@ -148,7 +155,8 @@
     <label class="photo-upload">Listing photos<input name="photoFile" id="listingPhoto" type="file" accept="image/*" multiple><small>最多 10 张，照片会自动压缩并保存在这台手机</small></label><div id="listingPhotoPreview" class="photo-preview-grid hidden"></div><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveListing">Save</button></div></form></dialog>
   <dialog id="importListingDialog"><form method="dialog" id="importListingForm"><h3>Paste from WhatsApp</h3><p class="dialog-help">Copy 整段房产资料贴进来，我会自动拆成 Listing fields。</p><textarea id="whatsappListingText" rows="13" required placeholder="FOR SALE\nDouble Storey Terrace...\nFreehold\nLand 22x70\n4 Bedrooms 3 Bathrooms\nRM430,000"></textarea><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="parseListingBtn">Import</button></div></form></dialog>
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
+  <dialog id="adminAgentDialog" class="admin-dialog"><div class="admin-dialog-body"><button type="button" class="dialog-close" id="closeAdminAgentDialog" aria-label="Close">×</button><h3 id="adminAgentTitle">Agent details</h3><p id="adminAgentMeta" class="admin-agent-meta"></p><div id="adminAgentDetails"></div></div></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=1"></script><script src="app.js?v=27"></script>
+  <script src="supabase.js?v=1"></script><script src="app.js?v=28"></script>
 </body>
 </html>
