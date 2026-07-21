@@ -79,6 +79,8 @@ dialog h3{margin:0 0 5px}
 .item{flex-wrap:wrap}.item .info{min-width:calc(100% - 112px)}.item-controls{margin-left:auto}
 }
 .sync-wrap{display:flex;align-items:center;gap:9px}
+.auth-screen{position:fixed;inset:0;z-index:100;background:linear-gradient(145deg,#12372a,#265d49);display:grid;place-items:center;padding:20px}
+.auth-screen.ready{display:none}.auth-card{width:min(100%,400px);background:#fff;border-radius:24px;padding:28px;display:grid;gap:13px;box-shadow:0 24px 80px #0006}.auth-card h1{margin:0;color:var(--green)}.auth-card>p{margin:0 0 5px;color:var(--muted)}.auth-card label{font-size:12px;color:var(--muted)}.auth-card input{margin-top:5px}.auth-card button{border:0;border-radius:12px}.auth-secondary{padding:12px;background:var(--mint);color:var(--green);font-weight:700}.auth-message{min-height:18px!important;color:#a23b2a!important;font-size:12px}.sync-wrap #userLabel{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff}
 .sync-wrap span{font-size:10px;color:#bfe0d1}
 .sync-wrap span.syncing{color:#ffe49a}
 .sync-wrap span.error{color:#ffb4a0}

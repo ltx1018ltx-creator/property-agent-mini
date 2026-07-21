@@ -12,9 +12,21 @@
   <link rel="stylesheet" href="photos.css?v=12">
 </head>
 <body>
+  <section id="authScreen" class="auth-screen">
+    <form id="authForm" class="auth-card">
+      <small>PROPERTY WORKSPACE</small><h1>Mari 好房</h1>
+      <p>每位 agent 各自的客户、房源和 case。</p>
+      <label>Name <input id="authName" autocomplete="name" placeholder="Your name"></label>
+      <label>Email <input id="authEmail" type="email" autocomplete="email" required placeholder="name@example.com"></label>
+      <label>Password <input id="authPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="Minimum 6 characters"></label>
+      <button class="primary big" id="loginBtn" type="submit">Log in</button>
+      <button class="auth-secondary" id="signupBtn" type="button">Create agent account</button>
+      <p id="authMessage" class="auth-message"></p>
+    </form>
+  </section>
   <header class="topbar">
     <div><small>PROPERTY WORKSPACE</small><h1>Mari 好房</h1></div>
-    <div class="sync-wrap"><span id="syncStatus">Local</span><button class="icon-btn" id="exportBtn" title="备份资料">↗</button></div>
+    <div class="sync-wrap"><span id="userLabel"></span><span id="syncStatus">Local</span><button class="icon-btn" id="exportBtn" title="备份资料">↗</button><button class="icon-btn" id="logoutBtn" title="Log out">⇥</button></div>
   </header>
 
   <main>
@@ -137,6 +149,6 @@
   <dialog id="importListingDialog"><form method="dialog" id="importListingForm"><h3>Paste from WhatsApp</h3><p class="dialog-help">Copy 整段房产资料贴进来，我会自动拆成 Listing fields。</p><textarea id="whatsappListingText" rows="13" required placeholder="FOR SALE\nDouble Storey Terrace...\nFreehold\nLand 22x70\n4 Bedrooms 3 Bathrooms\nRM430,000"></textarea><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="parseListingBtn">Import</button></div></form></dialog>
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <div id="toast" class="toast"></div>
-  <script src="app.js?v=25"></script>
+  <script src="supabase.js?v=1"></script><script src="app.js?v=27"></script>
 </body>
 </html>
