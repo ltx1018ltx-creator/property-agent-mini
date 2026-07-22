@@ -1,4 +1,4 @@
-const C='mari-property-v28',FILES=['./','index.html','styles.css','cases.css','photos.css?v=12','supabase.js?v=1','app.js?v=28','share.html','share.css?v=18','share.js?v=19','manifest.webmanifest','icons/icon-source.jpg'];
+const C='mari-property-v29',FILES=['./','index.html','styles.css','cases.css','photos.css?v=12','supabase.js?v=1','app.js?v=29','share.html','share.css?v=18','share.js?v=19','manifest.webmanifest','icons/icon-source.jpg'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)))});
 self.addEventListener('activate',e=>e.waitUntil(Promise.all([self.clients.claim(),caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k))))])));
 function openShareDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open('mari-share-target',1);req.onupgradeneeded=()=>req.result.createObjectStore('shares');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
