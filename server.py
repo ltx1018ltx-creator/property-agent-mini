@@ -6,10 +6,15 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 DATA=ROOT/'shares.json'
 STATE=ROOT/'agent-state.json'
+IMPORTS=ROOT/'imports.json'
 def load():
     try:return json.loads(DATA.read_text())
     except:return {}
 def save(data):DATA.write_text(json.dumps(data,separators=(',',':')))
+def load_imports():
+    try:return json.loads(IMPORTS.read_text())
+    except:return {}
+def save_imports(data):IMPORTS.write_text(json.dumps(data,separators=(',',':')))
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT),**kw)
     def end_headers(self):
@@ -18,6 +23,15 @@ class Handler(SimpleHTTPRequestHandler):
     def reply(self,status,payload):
         body=json.dumps(payload).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
+        if self.path=='/api/imports':
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if size>45_000_000:return self.reply(413,{'error':'too large'})
+                item=json.loads(self.rfile.read(size))
+                if not isinstance(item,dict) or not isinstance(item.get('listings'),list):raise ValueError()
+                sid=secrets.token_urlsafe(24);data=load_imports();data[sid]=item;save_imports(data)
+                return self.reply(201,{'token':sid})
+            except Exception:return self.reply(400,{'error':'invalid import'})
         if self.path!='/api/shares':return self.send_error(404)
         try:
             size=int(self.headers.get('Content-Length','0'))
@@ -35,6 +49,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply(200,{'ok':True})
         except Exception:return self.reply(400,{'error':'invalid state'})
     def do_GET(self):
+        if self.path.startswith('/api/imports/'):
+            sid=self.path.split('/')[-1].split('?')[0];item=load_imports().get(sid)
+            return self.reply(200,item) if item else self.reply(404,{'error':'not found'})
         if self.path.split('?')[0]=='/api/state':
             try:return self.reply(200,json.loads(STATE.read_text()))
             except Exception:return self.reply(200,{'updatedAt':0,'leads':[],'listings':[],'cases':[]})
@@ -42,5 +59,10 @@ class Handler(SimpleHTTPRequestHandler):
             sid=self.path.split('/')[-1].split('?')[0];item=load().get(sid)
             return self.reply(200,item) if item else self.reply(404,{'error':'not found'})
         super().do_GET()
+    def do_DELETE(self):
+        if not self.path.startswith('/api/imports/'):return self.send_error(404)
+        sid=self.path.split('/')[-1].split('?')[0];data=load_imports()
+        if sid not in data:return self.reply(404,{'error':'not found'})
+        del data[sid];save_imports(data);self.reply(200,{'ok':True})
 port=int(os.environ.get('PORT','8080'))
 ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
