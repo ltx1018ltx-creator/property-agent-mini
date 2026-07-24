@@ -11,6 +11,40 @@ let caseFilter='All';
 const selectedListings=new Set();
 let syncTimer;
 let adminAgents=[];
+const propertyQuotes=[
+ '今天不 follow up，明天客户就 follow 别人了。',
+ '没有卖不掉的房，只有还没遇到对的 buyer。',
+ 'Location 很重要，行动力更加重要。',
+ '客户说考虑一下，通常是在等你再问一下。',
+ '每一个「已读不回」，都在训练你的心脏。',
+ '房价会起落，佣金进袋才算真的。',
+ '先开门看屋，缘分才有机会进门。',
+ '不是 market 静，是你的 WhatsApp 太安静。',
+ '好的 listing 会说话，好的 agent 会一直说。',
+ '今天多打一个电话，月底少吃一餐泡面。',
+ 'Buyer 看的是房，agent 看的是 closing。',
+ '钥匙不会自己转，deal 不会自己 close。',
+ '房产没有捷径，除非那间屋真的有 shortcut。',
+ '每一次 viewing，都是佣金在远处向你挥手。',
+ '客户预算有限，梦想通常没有。',
+ '有 follow up 才有故事，有 closing 才有结局。',
+ '不要怕客户拒绝，bank 才是真正的大 boss。',
+ '卖房靠专业，熬夜靠咖啡，成交靠缘分加追踪。',
+ '今天的 cold lead，可能是下个月的 hot deal。',
+ '屋主要高价，买家要低价，agent 要活下来。',
+ '真正的 sea view，有时只是窗口看得到一点蓝。',
+ '照片拍得好，客户先爱上；资料写得准，客户才来看。',
+ '每间屋都有优点，只是有些优点躲得比较深。',
+ 'Prospecting 很苦，零 commission 更苦。',
+ '成交前都是 maybe，签名后才是 money。',
+ '不怕 listing 多，只怕照片糊、资料少。',
+ '客户不是失踪，他只是在别人的 listing 出现。',
+ '今天整理好资料，明天少一点手忙脚乱。',
+ '房产是长期主义，佣金是短期止痛药。',
+ '一个好 agent，连「再看看」都听得出机会。',
+ '先做该做的，运气才知道去哪里找你。'
+];
+function setDailyQuote(){const d=new Date(),dayNumber=Math.floor(new Date(d.getFullYear(),d.getMonth(),d.getDate())/86400000),el=$('#dailyQuote');if(el)el.textContent=propertyQuotes[dayNumber%propertyQuotes.length]}
 function setSync(label,kind=''){const el=$('#syncStatus');if(!el)return;el.textContent=label;el.className=kind}
 async function syncCloud(){if(!session)return;setSync('Syncing…','syncing');try{await sbJson('/rest/v1/agent_states?on_conflict=user_id',{method:'POST',token:session.access_token,headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:session.user.id,data:db,updated_at:new Date().toISOString()})});setSync('Cloud saved')}catch(e){setSync('Save failed','error')}}
 const save=()=>{db.updatedAt=Date.now();localStorage.setItem(KEY,JSON.stringify(db));render();clearTimeout(syncTimer);syncTimer=setTimeout(syncCloud,500)};
@@ -19,6 +53,7 @@ const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function go(id){$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('[data-go]').forEach(x=>x.classList.toggle('active',x.dataset.go===id));scrollTo(0,0)}
 $$('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go));
 function render(){
+ setDailyQuote();
  const today=new Date().toISOString().slice(0,10), due=db.leads.filter(x=>x.followUp<=today);
  const pendingCases=db.cases.filter(x=>x.status!=='S&P Signed and Claimed');
  $('#leadCount').textContent=db.leads.length; $('#dueCount').textContent=due.length; $('#caseCount').textContent=pendingCases.length;
