@@ -11,6 +11,7 @@ let caseFilter='All';
 const selectedListings=new Set();
 let syncTimer;
 let adminAgents=[];
+let apiKeyActive=false;
 const propertyQuotes=[
  '今天不 follow up，明天客户就 follow 别人了。',
  '没有卖不掉的房，只有还没遇到对的 buyer。',
@@ -198,6 +199,23 @@ async function claimImport(){
 function adminDate(v){return v?new Intl.DateTimeFormat('en-MY',{dateStyle:'medium'}).format(new Date(v)):'Never'}
 function renderAdminAgents(){const q=($('#adminSearch').value||'').toLowerCase(),rows=adminAgents.filter(x=>`${x.name} ${x.email}`.toLowerCase().includes(q));$('#adminAgentList').innerHTML=rows.length?rows.map(x=>`<article class="item agent-item" onclick="viewAdminAgent('${x.user_id}')"><span class="avatar">${esc((x.name||x.email||'?')[0]).toUpperCase()}</span><div class="info"><b>${esc(x.name||'Unnamed agent')}</b><small>${esc(x.email)}</small><small>Joined ${adminDate(x.created_at)} · Last login ${adminDate(x.last_sign_in_at)}</small><div class="agent-counts"><span>${x.lead_count} Leads</span><span>${x.listing_count} Listings</span><span>${x.case_count} Cases</span></div></div><i>›</i></article>`).join(''):'<div class="empty">No matching agents.</div>';const leads=adminAgents.reduce((n,x)=>n+x.lead_count,0),listings=adminAgents.reduce((n,x)=>n+x.listing_count,0);$('#adminSummary').innerHTML=`<article><b>${adminAgents.length}</b><span>Agents</span></article><article><b>${leads}</b><span>Total leads</span></article><article><b>${listings}</b><span>Total listings</span></article>`}
 async function loadAdmin(){try{adminAgents=await sbJson('/rest/v1/rpc/get_admin_agents',{method:'POST',token:session.access_token,body:'{}'});$('#adminBtn').classList.remove('hidden');renderAdminAgents();return true}catch(e){$('#adminBtn').classList.add('hidden');return false}}
+async function loadApiKeyStatus(){
+ try{
+  const s=await sbJson('/rest/v1/rpc/get_agent_api_key_status',{method:'POST',token:session.access_token,body:'{}'});
+  apiKeyActive=Boolean(s?.active);$('#apiKeyStatus').textContent=apiKeyActive?'OpenClaw key active':'Not connected yet';
+  $('#apiKeyMeta').textContent=apiKeyActive?`Key ${s.key_prefix}… · ${s.last_used_at?'Last used '+adminDate(s.last_used_at):'Not used yet'}`:'Generate a private key to connect your AI.';
+  $('#apiKeyDot').classList.toggle('active',apiKeyActive);$('#revokeApiKeyBtn').classList.toggle('hidden',!apiKeyActive);
+  $('#generateApiKeyBtn').textContent=apiKeyActive?'Replace API key':'Generate API key';
+ }catch(e){$('#apiKeyStatus').textContent='Database setup needed';$('#apiKeyMeta').textContent='Run the latest supabase-setup.sql first.'}
+}
+$('#connectAiBtn').onclick=async()=>{go('ai-connect');await loadApiKeyStatus()};
+$('#generateApiKeyBtn').onclick=async()=>{
+ if(apiKeyActive&&!confirm('Replace the current key? The old OpenClaw connection will stop working.'))return;
+ try{const s=await sbJson('/rest/v1/rpc/create_agent_api_key',{method:'POST',token:session.access_token,body:'{}'});$('#apiKeyValue').textContent=s.api_key;$('#apiKeyReveal').classList.remove('hidden');await loadApiKeyStatus();toast('New private API key generated')}catch(e){toast(e.message)}
+};
+$('#revokeApiKeyBtn').onclick=async()=>{if(!confirm('Revoke this key? OpenClaw uploads will stop immediately.'))return;try{await sbJson('/rest/v1/rpc/revoke_agent_api_key',{method:'POST',token:session.access_token,body:'{}'});$('#apiKeyReveal').classList.add('hidden');await loadApiKeyStatus();toast('API key revoked')}catch(e){toast(e.message)}};
+$('#copyApiKeyBtn').onclick=async()=>{await navigator.clipboard.writeText($('#apiKeyValue').textContent);toast('API key copied — keep it private')};
+$('#copyInstructionBtn').onclick=async()=>{await navigator.clipboard.writeText($('#openClawInstruction').textContent);toast('Connection instruction copied')};
 function adminRows(items,kind){if(!items?.length)return '<div class="empty">No records.</div>';return items.map(x=>{const title=kind==='leads'?x.name:kind==='listings'?(x.title||x.propertyType):`${x.client||''} · ${x.property||''}`,meta=kind==='leads'?[x.requirement,x.phone,x.preferredLocation,x.followUp].filter(Boolean).join(' · '):kind==='listings'?[x.location,money(x.price),x.deal].filter(Boolean).join(' · '):[x.status,x.updated,x.commission&&`Commission ${money(x.commission)}`].filter(Boolean).join(' · ');return `<div class="admin-readonly-row"><b>${esc(title||'Untitled')}</b><small>${esc(meta)}</small></div>`}).join('')}
 window.viewAdminAgent=async id=>{const agent=adminAgents.find(x=>x.user_id===id);if(!agent)return;$('#adminAgentTitle').textContent=agent.name||'Agent details';$('#adminAgentMeta').textContent=`${agent.email} · Joined ${adminDate(agent.created_at)} · Last login ${adminDate(agent.last_sign_in_at)}`;$('#adminAgentDetails').innerHTML='<div class="empty">Loading records…</div>';$('#adminAgentDialog').showModal();try{const state=await sbJson('/rest/v1/rpc/get_admin_agent_state',{method:'POST',token:session.access_token,body:JSON.stringify({target_user_id:id})});$('#adminAgentDetails').innerHTML=`<section class="admin-detail-section"><h4>Leads (${state.leads?.length||0})</h4>${adminRows(state.leads,'leads')}</section><section class="admin-detail-section"><h4>Listings (${state.listings?.length||0})</h4>${adminRows(state.listings,'listings')}</section><section class="admin-detail-section"><h4>Cases (${state.cases?.length||0})</h4>${adminRows(state.cases,'cases')}</section>`}catch(e){$('#adminAgentDetails').innerHTML='<div class="empty">Unable to load this agent.</div>'}};
 $('#adminBtn').onclick=async()=>{go('admin');await loadAdmin()};$('#refreshAdminBtn').onclick=loadAdmin;$('#adminSearch').oninput=renderAdminAgents;$('#closeAdminAgentDialog').onclick=()=>$('#adminAgentDialog').close();

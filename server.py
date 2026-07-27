@@ -2,11 +2,15 @@
 import json, os, secrets
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 ROOT=Path(__file__).resolve().parent
 DATA=ROOT/'shares.json'
 STATE=ROOT/'agent-state.json'
 IMPORTS=ROOT/'imports.json'
+SUPABASE_URL=os.environ.get('SUPABASE_URL','https://nqruxoniebjqyegudyku.supabase.co').rstrip('/')
+SUPABASE_KEY=os.environ.get('SUPABASE_ANON_KEY','sb_publishable_XN56JH2JPCjbLQYR2ejjDQ_EpP0TaDJ')
 def load():
     try:return json.loads(DATA.read_text())
     except:return {}
@@ -23,6 +27,30 @@ class Handler(SimpleHTTPRequestHandler):
     def reply(self,status,payload):
         body=json.dumps(payload).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
+        if self.path=='/api/openclaw/listings':
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if size<2 or size>8_000_000:return self.reply(413,{'error':'payload too large'})
+                auth=self.headers.get('Authorization','')
+                if not auth.lower().startswith('bearer '):return self.reply(401,{'error':'missing API key'})
+                api_key=auth[7:].strip()
+                if not api_key.startswith('mari_') or len(api_key)<30:return self.reply(401,{'error':'invalid API key'})
+                payload=json.loads(self.rfile.read(size))
+                listing=payload.get('listing',payload) if isinstance(payload,dict) else None
+                if not isinstance(listing,dict):return self.reply(400,{'error':'listing must be an object'})
+                body=json.dumps({'raw_key':api_key,'listing':listing}).encode()
+                req=Request(f'{SUPABASE_URL}/rest/v1/rpc/import_listing_with_api_key',data=body,method='POST',headers={
+                    'apikey':SUPABASE_KEY,'Authorization':f'Bearer {SUPABASE_KEY}','Content-Type':'application/json'
+                })
+                with urlopen(req,timeout=20) as res:
+                    result=json.loads(res.read() or b'{}')
+                return self.reply(201,{'ok':True,'listing_id':result.get('listing_id')})
+            except HTTPError as e:
+                try:detail=json.loads(e.read()).get('message','import failed')
+                except Exception:detail='import failed'
+                status=401 if e.code in (400,401,403) and 'key' in detail.lower() else 400
+                return self.reply(status,{'error':detail})
+            except Exception:return self.reply(400,{'error':'invalid listing'})
         if self.path=='/api/imports':
             try:
                 size=int(self.headers.get('Content-Length','0'))
