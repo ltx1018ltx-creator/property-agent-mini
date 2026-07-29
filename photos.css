@@ -22,7 +22,9 @@
 .listing-check { align-self:center; flex:0 0 auto; }
 .listing-check input { width:19px; height:19px; accent-color:#c4583a; }
 .listing-bulk { position:sticky; top:4px; z-index:5; display:flex; justify-content:space-between; align-items:center; margin:0 0 12px; padding:10px 12px; border-radius:12px; background:#2c2926; color:#fff; box-shadow:0 5px 18px #2c292633; }
+.listing-bulk > div { display:flex; gap:7px; }
 .listing-bulk button { border:0; border-radius:9px; padding:8px 11px; background:#f1a489; color:#2c2926; font-weight:800; }
+.listing-bulk button.bulk-delete { background:#ffe4dc; color:#9d321f; }
 .listing-head-actions { display:flex; gap:7px; }
 .listing-head-actions button { white-space:nowrap; }
 .dialog-help { color:var(--muted); font-size:13px; margin-top:-4px; }
