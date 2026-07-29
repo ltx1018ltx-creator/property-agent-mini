@@ -1,6 +1,11 @@
-const C='mari-property-v41',FILES=['./','index.html','styles.css?v=36','cases.css','photos.css?v=14','supabase.js?v=2','app.js?v=41','share.html','share.css?v=19','share.js?v=22','manifest.webmanifest','icons/icon-source.jpg'];
+const C='mari-property-v42',FILES=['./','index.html','styles.css?v=36','cases.css','photos.css?v=14','supabase.js?v=2','app.js?v=42','share.html','share.css?v=19','share.js?v=22','manifest.webmanifest','icons/icon-source.jpg'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)))});
-self.addEventListener('activate',e=>e.waitUntil(Promise.all([self.clients.claim(),caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k))))])));
+self.addEventListener('activate',e=>e.waitUntil((async()=>{
+ await caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k))));
+ await self.clients.claim();
+ const clients=await self.clients.matchAll({type:'window'});
+ await Promise.all(clients.map(client=>client.navigate(client.url)));
+})()));
 function openShareDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open('mari-share-target',1);req.onupgradeneeded=()=>req.result.createObjectStore('shares');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
 async function saveShare(payload){const db=await openShareDB();return new Promise((resolve,reject)=>{const tx=db.transaction('shares','readwrite');tx.objectStore('shares').put(payload,'latest');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
 self.addEventListener('fetch',e=>{const url=new URL(e.request.url);if(e.request.method==='POST'&&url.pathname.endsWith('/share-target')){e.respondWith((async()=>{const form=await e.request.formData(),files=form.getAll('photos').filter(x=>x instanceof File&&x.size),text=[form.get('title'),form.get('text'),form.get('url')].filter(Boolean).join('\n');await saveShare({text,files,receivedAt:Date.now()});return Response.redirect(new URL('./?shared=1',e.request.url),303)})());return}if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match('./')));return}e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(C).then(c=>c.put(e.request,copy));return r}).catch(()=>caches.match(e.request))) });
