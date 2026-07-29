@@ -46,8 +46,9 @@ const propertyQuotes=[
  '先做该做的，运气才知道去哪里找你。'
 ];
 function setDailyQuote(){const d=new Date(),dayNumber=Math.floor(new Date(d.getFullYear(),d.getMonth(),d.getDate())/86400000),el=$('#dailyQuote');if(el)el.textContent=propertyQuotes[dayNumber%propertyQuotes.length]}
-function setSync(label,kind=''){const el=$('#syncStatus');if(!el)return;el.textContent=label;el.className=kind}
-async function syncCloud(){if(!session)return;setSync('Syncing…','syncing');try{await sbJson('/rest/v1/agent_states?on_conflict=user_id',{method:'POST',token:session.access_token,headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:session.user.id,data:db,updated_at:new Date().toISOString()})});setSync('Cloud saved')}catch(e){setSync('Save failed','error')}}
+function setSync(label,kind='',detail=''){const el=$('#syncStatus');if(!el)return;el.textContent=label;el.className=kind;el.title=detail;el.onclick=detail?()=>alert(`Cloud error:\n${detail}`):null}
+function cloudError(e,label='Cloud error'){const detail=e?.message||String(e||'Unknown cloud error');setSync(label,'error',detail);return detail}
+async function syncCloud(rethrow=false){if(!session)return;setSync('Syncing…','syncing');try{await sbJson('/rest/v1/agent_states?on_conflict=user_id',{method:'POST',token:session.access_token,headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:session.user.id,data:db,updated_at:new Date().toISOString()})});setSync('Cloud saved')}catch(e){cloudError(e,'Save failed');if(rethrow)throw e}}
 const save=()=>{db.updatedAt=Date.now();localStorage.setItem(KEY,JSON.stringify(db));render();clearTimeout(syncTimer);syncTimer=setTimeout(syncCloud,500)};
 const money=n=>'RM '+Number(n||0).toLocaleString('en-MY',{maximumFractionDigits:0});
 const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -189,7 +190,7 @@ $$('[data-calc]').forEach(b=>b.onclick=()=>{$$('[data-calc]').forEach(x=>x.class
 $('#exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agent-daily-backup.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded')};
 function toast(s){const x=$('#toast');x.textContent=s;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),1800)}
 function fillListingOptions(){const add=(el,items,first)=>{el.innerHTML=`<option value="">${first}</option>`+items.map(x=>`<option>${esc(x)}</option>`).join('')};$('#listingLocationOptions').innerHTML=listingLocations.map(x=>`<option value="${esc(x)}">`).join('');add($('#listingPropertyType'),propertyTypes,'Choose property type');add($('#listingLocationFilter'),listingLocations,'All locations');add($('#listingTypeFilter'),propertyTypes,'All property types');add($('#listingSubtypeFilter'),propertySubtypes,'All property subtypes');add($('#leadPropertyType'),propertyTypes,'Any property type')}
-async function loadCloud(){try{const rows=await sbJson(`/rest/v1/agent_states?user_id=eq.${session.user.id}&select=data`,{token:session.access_token});const remote=rows[0]?.data;if(remote&&(remote.updatedAt||0)>(db.updatedAt||0)){db=remote;db.cases||=[];db.leads||=[];db.listings||=[];localStorage.setItem(KEY,JSON.stringify(db))}else if(!rows.length)await syncCloud();setSync('Cloud synced');render()}catch(e){setSync('Setup needed','error');render()}}
+async function loadCloud(){try{const rows=await sbJson(`/rest/v1/agent_states?user_id=eq.${session.user.id}&select=data`,{token:session.access_token});const remote=rows[0]?.data;if(remote&&(remote.updatedAt||0)>(db.updatedAt||0)){db=remote;db.cases||=[];db.leads||=[];db.listings||=[];localStorage.setItem(KEY,JSON.stringify(db))}else if(!rows.length)await syncCloud(true);setSync('Cloud synced');render()}catch(e){cloudError(e);render()}}
 async function claimImport(){
  const q=new URLSearchParams(location.search),token=q.get('claim');if(!token)return;
  try{
