@@ -12,7 +12,7 @@ STATE=ROOT/'agent-state.json'
 IMPORTS=ROOT/'imports.json'
 SUPABASE_URL=os.environ.get('SUPABASE_URL','https://nqruxoniebjqyegudyku.supabase.co').rstrip('/')
 SUPABASE_KEY=os.environ.get('SUPABASE_ANON_KEY','sb_publishable_XN56JH2JPCjbLQYR2ejjDQ_EpP0TaDJ')
-SUPABASE_SERVICE_ROLE_KEY=os.environ.get('SUPABASE_SERVICE_ROLE_KEY','')
+SUPABASE_SERVICE_ROLE_KEY=os.environ.get('SUPABASE_SECRET_KEY') or os.environ.get('SUPABASE_SERVICE_ROLE_KEY','')
 SITE_URL=os.environ.get('SITE_URL','https://property-agent-mini.onrender.com').rstrip('/')
 def load():
     try:return json.loads(DATA.read_text())
