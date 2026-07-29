@@ -14,6 +14,32 @@ create table if not exists public.public_shares (
 
 create extension if not exists pgcrypto;
 
+create table if not exists public.team_listings (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  listing jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.admin_users (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.admin_users where user_id = auth.uid()
+  );
+$$;
+grant execute on function public.is_admin() to authenticated;
+
 create table if not exists public.agent_api_keys (
   user_id uuid primary key references auth.users(id) on delete cascade,
   key_hash bytea not null unique,
@@ -29,11 +55,13 @@ alter table public.agent_api_keys
 
 alter table public.agent_states enable row level security;
 alter table public.public_shares enable row level security;
+alter table public.team_listings enable row level security;
 alter table public.agent_api_keys enable row level security;
 
 grant select, insert, update, delete on public.agent_states to authenticated;
 grant select on public.public_shares to anon;
 grant select, insert, delete on public.public_shares to authenticated;
+grant select, insert, update, delete on public.team_listings to authenticated;
 
 -- API keys are managed only through the security-definer functions below.
 revoke all on public.agent_api_keys from anon, authenticated;
@@ -41,6 +69,20 @@ revoke all on public.agent_api_keys from anon, authenticated;
 drop policy if exists "own state only" on public.agent_states;
 create policy "own state only" on public.agent_states for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "members read team listings" on public.team_listings;
+create policy "members read team listings" on public.team_listings for select to authenticated
+  using (true);
+drop policy if exists "members create own listings" on public.team_listings;
+create policy "members create own listings" on public.team_listings for insert to authenticated
+  with check (auth.uid() = owner_id);
+drop policy if exists "owners or admins update listings" on public.team_listings;
+create policy "owners or admins update listings" on public.team_listings for update to authenticated
+  using (auth.uid() = owner_id or public.is_admin())
+  with check (auth.uid() = owner_id or public.is_admin());
+drop policy if exists "owners or admins delete listings" on public.team_listings;
+create policy "owners or admins delete listings" on public.team_listings for delete to authenticated
+  using (auth.uid() = owner_id or public.is_admin());
 
 drop policy if exists "owner creates shares" on public.public_shares;
 create policy "owner creates shares" on public.public_shares for insert to authenticated
@@ -108,7 +150,7 @@ set search_path = public, extensions
 as $$
 declare
   owner uuid;
-  new_id bigint := floor(extract(epoch from clock_timestamp())*1000)::bigint;
+  new_id uuid := gen_random_uuid();
   clean_listing jsonb;
 begin
   if raw_key is null or listing is null or jsonb_typeof(listing)<>'object' then
@@ -118,26 +160,32 @@ begin
     where key_hash=digest(raw_key,'sha256');
   if owner is null then raise exception 'Invalid or revoked API key'; end if;
 
-  clean_listing := (listing - 'id' - 'shareId') ||
-    jsonb_build_object('id',new_id,'shareId','','importedBy','OpenClaw','importedAt',now());
+  clean_listing := (listing - 'id' - 'shareId' - '_ownerId') ||
+    jsonb_build_object('shareId','','importedBy','OpenClaw','importedAt',now());
 
-  insert into public.agent_states(user_id,data,updated_at)
-  values(owner,jsonb_build_object(
-    'updatedAt',new_id,'leads','[]'::jsonb,
-    'listings',jsonb_build_array(clean_listing),'cases','[]'::jsonb
-  ),now())
-  on conflict(user_id) do update set
-    data=jsonb_set(
-      jsonb_set(agent_states.data,'{listings}',
-        jsonb_build_array(clean_listing) || coalesce(agent_states.data->'listings','[]'::jsonb),true),
-      '{updatedAt}',to_jsonb(new_id),true
-    ),
-    updated_at=now();
+  insert into public.team_listings(id,owner_id,listing)
+  values(new_id,owner,clean_listing);
 
   update public.agent_api_keys set last_used_at=now() where user_id=owner;
   return jsonb_build_object('listing_id',new_id);
 end;
 $$;
+
+-- Safe one-time migration: copy every user's existing listings into the shared pool.
+-- A marker inside each migrated row makes this block rerunnable without duplicates.
+insert into public.team_listings(owner_id,listing,created_at,updated_at)
+select s.user_id,
+       (item - 'id' - '_ownerId') ||
+         jsonb_build_object('_legacyOwner',s.user_id,'_legacyId',item->>'id'),
+       s.updated_at,
+       s.updated_at
+from public.agent_states s
+cross join lateral jsonb_array_elements(coalesce(s.data->'listings','[]'::jsonb)) item
+where not exists (
+  select 1 from public.team_listings t
+  where t.listing->>'_legacyOwner'=s.user_id::text
+    and t.listing->>'_legacyId'=item->>'id'
+);
 
 revoke all on function public.create_agent_api_key() from public;
 revoke all on function public.revoke_agent_api_key() from public;

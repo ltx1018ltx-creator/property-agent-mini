@@ -48,7 +48,7 @@ begin
          u.last_sign_in_at,
          s.updated_at,
          coalesce(jsonb_array_length(coalesce(s.data -> 'leads', '[]'::jsonb)), 0),
-         coalesce(jsonb_array_length(coalesce(s.data -> 'listings', '[]'::jsonb)), 0),
+         coalesce((select count(*)::integer from public.team_listings t where t.owner_id=u.id), 0),
          coalesce(jsonb_array_length(coalesce(s.data -> 'cases', '[]'::jsonb)), 0)
   from auth.users u
   left join public.agent_states s on s.user_id = u.id
@@ -68,7 +68,13 @@ begin
     raise exception 'Admin access required' using errcode = '42501';
   end if;
 
-  select coalesce(data, '{"updatedAt":0,"leads":[],"listings":[],"cases":[]}'::jsonb)
+  select coalesce(data, '{"updatedAt":0,"leads":[],"listings":[],"cases":[]}'::jsonb) ||
+         jsonb_build_object('listings',coalesce((
+           select jsonb_agg(t.listing || jsonb_build_object(
+             'id',t.id,'_ownerId',t.owner_id,'_createdAt',t.created_at
+           ) order by t.created_at desc)
+           from public.team_listings t where t.owner_id=target_user_id
+         ),'[]'::jsonb))
     into result
     from public.agent_states
    where user_id = target_user_id;
