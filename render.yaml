@@ -6,4 +6,8 @@ services:
     buildCommand: ""
     startCommand: python3 server.py
     healthCheckPath: /
-
+    envVars:
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SITE_URL
+        value: https://property-agent-mini.onrender.com

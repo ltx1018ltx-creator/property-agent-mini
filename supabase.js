@@ -15,5 +15,12 @@ async function refreshSession(){const s=authStore.get();if(!s?.refresh_token)ret
 async function validSession(){let s=authStore.get();if(!s)return null;const exp=JSON.parse(atob(s.access_token.split('.')[1])).exp*1000;if(exp<Date.now()+60000)s=await refreshSession();return s}
 async function signIn(email,password){const s=await sbJson('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})});authStore.set(s);return s}
 async function signUp(email,password,name){return sbJson('/auth/v1/signup',{method:'POST',body:JSON.stringify({email,password,data:{name}})})}
+async function inviteSessionFromUrl(){
+ const p=new URLSearchParams(location.hash.slice(1));if(p.get('type')!=='invite'||!p.get('access_token'))return null;
+ const access_token=p.get('access_token'),refresh_token=p.get('refresh_token'),user=await sbJson('/auth/v1/user',{token:access_token});
+ const s={access_token,refresh_token,token_type:p.get('token_type')||'bearer',expires_in:Number(p.get('expires_in')||3600),user};
+ authStore.set(s);history.replaceState({},'',location.pathname+location.search);return s;
+}
+async function setAccountPassword(s,password){await sbJson('/auth/v1/user',{method:'PUT',token:s.access_token,body:JSON.stringify({password})});return s}
 async function signOut(){const s=authStore.get();if(s)try{await sbJson('/auth/v1/logout',{method:'POST',token:s.access_token})}catch{}authStore.set(null)}
 async function publishShare(payload){const s=await validSession();if(!s)throw Error('Please log in again');const [row]=await sbJson('/rest/v1/public_shares',{method:'POST',token:s.access_token,headers:{Prefer:'return=representation'},body:JSON.stringify({owner_id:s.user.id,payload})});return row.id}

@@ -3,6 +3,7 @@ import json, os, secrets
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 ROOT=Path(__file__).resolve().parent
@@ -11,6 +12,8 @@ STATE=ROOT/'agent-state.json'
 IMPORTS=ROOT/'imports.json'
 SUPABASE_URL=os.environ.get('SUPABASE_URL','https://nqruxoniebjqyegudyku.supabase.co').rstrip('/')
 SUPABASE_KEY=os.environ.get('SUPABASE_ANON_KEY','sb_publishable_XN56JH2JPCjbLQYR2ejjDQ_EpP0TaDJ')
+SUPABASE_SERVICE_ROLE_KEY=os.environ.get('SUPABASE_SERVICE_ROLE_KEY','')
+SITE_URL=os.environ.get('SITE_URL','https://property-agent-mini.onrender.com').rstrip('/')
 def load():
     try:return json.loads(DATA.read_text())
     except:return {}
@@ -27,6 +30,36 @@ class Handler(SimpleHTTPRequestHandler):
     def reply(self,status,payload):
         body=json.dumps(payload).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
+        if self.path=='/api/admin/invite':
+            try:
+                if not SUPABASE_SERVICE_ROLE_KEY:return self.reply(503,{'error':'Invite service is not configured yet'})
+                auth=self.headers.get('Authorization','')
+                if not auth.lower().startswith('bearer '):return self.reply(401,{'error':'Please log in again'})
+                token=auth[7:].strip()
+                size=int(self.headers.get('Content-Length','0'))
+                if size<2 or size>10_000:return self.reply(400,{'error':'Invalid invite'})
+                payload=json.loads(self.rfile.read(size))
+                email=str(payload.get('email','')).strip().lower()
+                name=str(payload.get('name','')).strip()[:100]
+                if '@' not in email or len(email)>254:return self.reply(400,{'error':'Enter a valid email'})
+                admin_req=Request(f'{SUPABASE_URL}/rest/v1/rpc/is_admin',data=b'{}',method='POST',headers={
+                    'apikey':SUPABASE_KEY,'Authorization':f'Bearer {token}','Content-Type':'application/json'
+                })
+                with urlopen(admin_req,timeout=20) as res:
+                    if json.loads(res.read() or b'false') is not True:return self.reply(403,{'error':'Admin access required'})
+                body=json.dumps({'email':email,'data':{'name':name}}).encode()
+                invite_req=Request(f'{SUPABASE_URL}/auth/v1/invite?redirect_to={quote(SITE_URL,safe="")}',data=body,method='POST',headers={
+                    'apikey':SUPABASE_SERVICE_ROLE_KEY,'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','Content-Type':'application/json'
+                })
+                with urlopen(invite_req,timeout=20) as res:json.loads(res.read() or b'{}')
+                return self.reply(200,{'ok':True})
+            except HTTPError as e:
+                try:
+                    error_body=json.loads(e.read())
+                    detail=error_body.get('msg') or error_body.get('message')
+                except Exception:detail=None
+                return self.reply(e.code if e.code in (400,401,403,422,429) else 400,{'error':detail or 'Unable to send invite'})
+            except Exception:return self.reply(400,{'error':'Unable to send invite'})
         if self.path=='/api/openclaw/listings':
             try:
                 size=int(self.headers.get('Content-Length','0'))

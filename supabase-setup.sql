@@ -22,6 +22,11 @@ create table if not exists public.agent_api_keys (
   last_used_at timestamptz
 );
 
+-- CREATE TABLE IF NOT EXISTS does not add new columns to an older table.
+-- Keep upgrades rerunnable when agent_api_keys already exists.
+alter table public.agent_api_keys
+  add column if not exists last_used_at timestamptz;
+
 alter table public.agent_states enable row level security;
 alter table public.public_shares enable row level security;
 alter table public.agent_api_keys enable row level security;
@@ -67,7 +72,10 @@ begin
 end;
 $$;
 
-create or replace function public.revoke_agent_api_key()
+-- PostgreSQL cannot change an existing function's return type with
+-- CREATE OR REPLACE. Drop the older version first so this setup remains rerunnable.
+drop function if exists public.revoke_agent_api_key();
+create function public.revoke_agent_api_key()
 returns void
 language sql
 security definer

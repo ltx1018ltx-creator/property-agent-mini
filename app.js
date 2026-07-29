@@ -199,6 +199,16 @@ async function claimImport(){
 function adminDate(v){return v?new Intl.DateTimeFormat('en-MY',{dateStyle:'medium'}).format(new Date(v)):'Never'}
 function renderAdminAgents(){const q=($('#adminSearch').value||'').toLowerCase(),rows=adminAgents.filter(x=>`${x.name} ${x.email}`.toLowerCase().includes(q));$('#adminAgentList').innerHTML=rows.length?rows.map(x=>`<article class="item agent-item" onclick="viewAdminAgent('${x.user_id}')"><span class="avatar">${esc((x.name||x.email||'?')[0]).toUpperCase()}</span><div class="info"><b>${esc(x.name||'Unnamed agent')}</b><small>${esc(x.email)}</small><small>Joined ${adminDate(x.created_at)} · Last login ${adminDate(x.last_sign_in_at)}</small><div class="agent-counts"><span>${x.lead_count} Leads</span><span>${x.listing_count} Listings</span><span>${x.case_count} Cases</span></div></div><i>›</i></article>`).join(''):'<div class="empty">No matching agents.</div>';const leads=adminAgents.reduce((n,x)=>n+x.lead_count,0),listings=adminAgents.reduce((n,x)=>n+x.listing_count,0);$('#adminSummary').innerHTML=`<article><b>${adminAgents.length}</b><span>Agents</span></article><article><b>${leads}</b><span>Total leads</span></article><article><b>${listings}</b><span>Total listings</span></article>`}
 async function loadAdmin(){try{adminAgents=await sbJson('/rest/v1/rpc/get_admin_agents',{method:'POST',token:session.access_token,body:'{}'});$('#adminBtn').classList.remove('hidden');renderAdminAgents();return true}catch(e){$('#adminBtn').classList.add('hidden');return false}}
+$('#inviteAgentForm').onsubmit=async e=>{
+ e.preventDefault();
+ const msg=$('#inviteAgentMessage'),button=e.submitter,email=$('#inviteAgentEmail').value.trim(),name=$('#inviteAgentName').value.trim();
+ msg.textContent='Sending invite…';button.disabled=true;
+ try{
+  const r=await fetch('/api/admin/invite',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({email,name})});
+  const data=await r.json();if(!r.ok)throw Error(data.error||'Invite failed');
+  msg.textContent=`Invite sent to ${email}`;e.target.reset();toast('Agent invite sent');
+ }catch(err){msg.textContent=err.message}finally{button.disabled=false}
+};
 async function loadApiKeyStatus(){
  try{
   const s=await sbJson('/rest/v1/rpc/get_agent_api_key_status',{method:'POST',token:session.access_token,body:'{}'});
@@ -222,6 +232,21 @@ $('#adminBtn').onclick=async()=>{go('admin');await loadAdmin()};$('#refreshAdmin
 async function enterApp(s){session=s;KEY=`agentDaily.v2.${s.user.id}`;db=JSON.parse(localStorage.getItem(KEY)||'null')||{updatedAt:0,leads:[],listings:[],cases:[]};db.cases||=[];db.leads||=[];db.listings||=[];$('#userLabel').textContent=s.user.user_metadata?.name||s.user.email.split('@')[0];$('#authScreen').classList.add('ready');render();await Promise.all([loadCloud(),loadAdmin()]);await claimImport()}
 $('#authForm').onsubmit=async e=>{e.preventDefault();const msg=$('#authMessage');msg.textContent='Logging in…';try{await enterApp(await signIn($('#authEmail').value.trim(),$('#authPassword').value));msg.textContent=''}catch(err){msg.textContent=err.message}}
 $('#signupBtn').onclick=async()=>{const msg=$('#authMessage'),email=$('#authEmail').value.trim(),password=$('#authPassword').value,name=$('#authName').value.trim();if(!email||password.length<6)return msg.textContent='Email and minimum 6-character password required.';msg.textContent='Creating account…';try{const r=await signUp(email,password,name);if(r.access_token)await enterApp(r);else msg.textContent='Account created. Check your email, then log in.'}catch(err){msg.textContent=err.message}}
+let pendingInviteSession=null;
+async function handleInvite(){
+ try{
+  pendingInviteSession=await inviteSessionFromUrl();if(!pendingInviteSession)return false;
+  $$('#authForm>label,#loginBtn,#signupBtn,#authForm>p:not(#authMessage)').forEach(x=>x.classList.add('hidden'));
+  $('#invitePasswordPanel').classList.remove('hidden');$('#authMessage').textContent='Invitation verified. Choose your password.';
+  return true;
+ }catch(err){$('#authMessage').textContent=err.message;return false}
+}
+$('#setInvitePasswordBtn').onclick=async()=>{
+ const password=$('#invitePassword').value,msg=$('#authMessage');if(password.length<6)return msg.textContent='Password must be at least 6 characters.';
+ msg.textContent='Activating account…';
+ try{await setAccountPassword(pendingInviteSession,password);await enterApp(pendingInviteSession);toast('Account activated')}catch(err){msg.textContent=err.message}
+};
 $('#logoutBtn').onclick=async()=>{await signOut();location.reload()};
-fillListingOptions();$('#todayLabel').textContent=new Intl.DateTimeFormat('en-MY',{weekday:'long',day:'numeric',month:'long'}).format(new Date());validSession().then(s=>s?enterApp(s):null);
+fillListingOptions();$('#todayLabel').textContent=new Intl.DateTimeFormat('en-MY',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
+(async()=>{if(!await handleInvite()){const s=await validSession();if(s)await enterApp(s)}})();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready).then(importAndroidShare);

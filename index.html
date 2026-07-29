@@ -7,7 +7,7 @@
   <title>Mari 好房</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-source.jpg">
-  <link rel="stylesheet" href="styles.css?v=35">
+  <link rel="stylesheet" href="styles.css?v=36">
   <link rel="stylesheet" href="cases.css">
   <link rel="stylesheet" href="photos.css?v=12">
 </head>
@@ -21,6 +21,11 @@
       <label>Password <input id="authPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="Minimum 6 characters"></label>
       <button class="primary big" id="loginBtn" type="submit">Log in</button>
       <button class="auth-secondary" id="signupBtn" type="button">Create agent account</button>
+      <div id="invitePasswordPanel" class="invite-password-panel hidden">
+        <b>Welcome — set your password</b>
+        <input id="invitePassword" type="password" autocomplete="new-password" minlength="6" placeholder="Minimum 6 characters">
+        <button class="primary big" id="setInvitePasswordBtn" type="button">Activate account</button>
+      </div>
       <p id="authMessage" class="auth-message"></p>
     </form>
   </section>
@@ -117,6 +122,13 @@
 
     <section id="admin" class="page">
       <div class="section-head title"><div><small class="eyebrow">READ-ONLY ADMIN</small><h2>Agent Overview</h2></div><button id="refreshAdminBtn">Refresh</button></div>
+      <form id="inviteAgentForm" class="card invite-agent-card">
+        <div><small class="eyebrow">NEW TEAM MEMBER</small><h3>Invite Agent</h3><p>Send a secure account setup link. Their data and API key stay separate.</p></div>
+        <input id="inviteAgentName" autocomplete="name" placeholder="Agent name">
+        <input id="inviteAgentEmail" type="email" autocomplete="email" required placeholder="agent@example.com">
+        <button class="primary" type="submit">Send invite</button>
+        <small id="inviteAgentMessage"></small>
+      </form>
       <div id="adminSummary" class="stats admin-stats"></div>
       <input class="search" id="adminSearch" placeholder="Search agent name or email...">
       <div id="adminAgentList" class="stack"><div class="empty">Loading agents…</div></div>
@@ -187,6 +199,6 @@ Send one listing object using fields such as location, propertyType, tenure, dea
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <dialog id="adminAgentDialog" class="admin-dialog"><div class="admin-dialog-body"><button type="button" class="dialog-close" id="closeAdminAgentDialog" aria-label="Close">×</button><h3 id="adminAgentTitle">Agent details</h3><p id="adminAgentMeta" class="admin-agent-meta"></p><div id="adminAgentDetails"></div></div></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=1"></script><script src="app.js?v=34"></script>
+  <script src="supabase.js?v=2"></script><script src="app.js?v=35"></script>
 </body>
 </html>
