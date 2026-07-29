@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="icons/icon-source.jpg">
   <link rel="stylesheet" href="styles.css?v=36">
   <link rel="stylesheet" href="cases.css">
-  <link rel="stylesheet" href="photos.css?v=12">
+  <link rel="stylesheet" href="photos.css?v=13">
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -61,13 +61,21 @@
 
     <section id="listings" class="page">
       <div class="section-head title"><h2>Listing</h2><div class="listing-head-actions"><button id="importListingBtn">Paste WhatsApp</button><button class="primary" id="addListingBtn">＋ Add</button></div></div>
-      <div class="listing-filters">
-        <select id="listingLocationFilter"><option value="">All locations</option></select>
-        <select id="listingTypeFilter"><option value="">All property types</option></select>
-        <select id="listingSubtypeFilter"><option value="">All property subtypes</option></select>
-        <select id="listingTenureFilter"><option value="">All tenure</option><option>Freehold</option><option>Leasehold</option></select>
-        <select id="listingPriceFilter"><option value="">All prices</option><option value="0-300000">Below RM300k</option><option value="300000-500000">RM300k–500k</option><option value="500000-800000">RM500k–800k</option><option value="800000-1000000">RM800k–1m</option><option value="1000000-2000000">RM1m–2m</option><option value="2000000-Infinity">Above RM2m</option></select>
+      <div class="listing-toolbar">
+        <input class="search" id="listingSearch" placeholder="Search location, type or price…">
+        <button id="toggleListingFilters" aria-expanded="false">Filters <span id="listingFilterBadge" class="hidden">0</span></button>
       </div>
+      <div id="listingFilterPanel" class="listing-filter-panel hidden">
+        <div class="listing-filters">
+          <label>Location<select id="listingLocationFilter"><option value="">All locations</option></select></label>
+          <label>Property type<select id="listingTypeFilter"><option value="">All property types</option></select></label>
+          <label>Subtype<select id="listingSubtypeFilter"><option value="">All property subtypes</option></select></label>
+          <label>Tenure<select id="listingTenureFilter"><option value="">All tenure</option><option>Freehold</option><option>Leasehold</option></select></label>
+          <label>Price<select id="listingPriceFilter"><option value="">All prices</option><option value="0-300000">Below RM300k</option><option value="300000-500000">RM300k–500k</option><option value="500000-800000">RM500k–800k</option><option value="800000-1000000">RM800k–1m</option><option value="1000000-2000000">RM1m–2m</option><option value="2000000-Infinity">Above RM2m</option></select></label>
+        </div>
+        <button id="clearListingFilters">Clear filters</button>
+      </div>
+      <div class="listing-results-meta"><span id="listingResultCount">0 listings</span></div>
       <div id="listingBulkBar" class="listing-bulk hidden"><b><span id="listingSelectedCount">0</span> selected</b><button id="shareSelectedListings">Share selected</button></div>
       <div id="listingList" class="stack"></div>
     </section>
@@ -199,6 +207,6 @@ Send one listing object using fields such as location, propertyType, tenure, dea
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <dialog id="adminAgentDialog" class="admin-dialog"><div class="admin-dialog-body"><button type="button" class="dialog-close" id="closeAdminAgentDialog" aria-label="Close">×</button><h3 id="adminAgentTitle">Agent details</h3><p id="adminAgentMeta" class="admin-agent-meta"></p><div id="adminAgentDetails"></div></div></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=2"></script><script src="app.js?v=35"></script>
+  <script src="supabase.js?v=2"></script><script src="app.js?v=36"></script>
 </body>
 </html>
