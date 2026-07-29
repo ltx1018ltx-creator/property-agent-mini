@@ -24,6 +24,7 @@ main{max-width:820px;margin:auto;padding:20px 20px 100px}
 .section-head.title{margin:8px 0 18px}
 .primary{background:var(--green)!important;color:white!important;border:0;border-radius:12px;padding:10px 14px}
 .stack{display:grid;gap:10px}
+.load-more-listings{display:block;width:100%;margin:14px 0 2px;padding:13px;border:1px solid var(--line);border-radius:13px;background:var(--white);color:var(--green);font-weight:800}
 .item{background:var(--white);border:1px solid var(--line);padding:15px;border-radius:16px;display:flex;align-items:center;gap:12px}
 .item .avatar{height:44px;width:44px;border-radius:13px;background:var(--mint);display:grid;place-items:center;font-weight:800}
 .item .info{min-width:0;flex:1}
