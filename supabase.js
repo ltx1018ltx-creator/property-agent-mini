@@ -22,5 +22,15 @@ async function inviteSessionFromUrl(){
  authStore.set(s);history.replaceState({},'',location.pathname+location.search);return s;
 }
 async function setAccountPassword(s,password){await sbJson('/auth/v1/user',{method:'PUT',token:s.access_token,body:JSON.stringify({password})});return s}
-async function signOut(){const s=authStore.get();if(s)try{await sbJson('/auth/v1/logout',{method:'POST',token:s.access_token})}catch{}authStore.set(null)}
+async function signOut(){
+ const s=authStore.get();
+ authStore.set(null);
+ if(s)try{
+  await fetch(`${SUPABASE_URL}/auth/v1/logout`,{
+   method:'POST',
+   headers:sbHeaders(s.access_token),
+   signal:AbortSignal.timeout(2500)
+  });
+ }catch{}
+}
 async function publishShare(payload){const s=await validSession();if(!s)throw Error('Please log in again');const [row]=await sbJson('/rest/v1/public_shares',{method:'POST',token:s.access_token,headers:{Prefer:'return=representation'},body:JSON.stringify({owner_id:s.user.id,payload})});return row.id}
