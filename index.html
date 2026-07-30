@@ -31,7 +31,7 @@
   </section>
   <header class="topbar">
     <div><small>PROPERTY WORKSPACE</small><h1>Property Agent Hub</h1></div>
-    <div class="sync-wrap"><span id="userLabel"></span><span id="syncStatus">Local</span><span class="version-badge" title="Website version">v48</span><button class="admin-top" id="connectAiBtn" title="Connect OpenClaw">AI Link</button><button class="admin-top hidden" id="adminBtn" title="Admin dashboard">Admin</button><button class="icon-btn" id="exportBtn" title="备份资料">↗</button><button class="icon-btn" id="logoutBtn" title="Log out">⇥</button></div>
+    <div class="sync-wrap"><span id="userLabel"></span><span id="syncStatus">Local</span><span class="version-badge" title="Website version">v49</span><button class="admin-top" id="connectAiBtn" title="Connect OpenClaw">AI Link</button><button class="admin-top hidden" id="adminBtn" title="Admin dashboard">Admin</button><button class="icon-btn" id="exportBtn" title="备份资料">↗</button><button class="icon-btn" id="logoutBtn" title="Log out">⇥</button></div>
   </header>
 
   <main>
@@ -209,6 +209,6 @@ Send one listing object using fields such as location, propertyType, propertySub
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <dialog id="adminAgentDialog" class="admin-dialog"><div class="admin-dialog-body"><button type="button" class="dialog-close" id="closeAdminAgentDialog" aria-label="Close">×</button><h3 id="adminAgentTitle">Agent details</h3><p id="adminAgentMeta" class="admin-agent-meta"></p><div id="adminAgentDetails"></div></div></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=2"></script><script src="app.js?v=47"></script>
+  <script src="supabase.js?v=3"></script><script src="app.js?v=49"></script>
 </body>
 </html>
