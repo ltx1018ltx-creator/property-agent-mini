@@ -5,27 +5,26 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#12372a">
   <title>Tong Xen · Property Listings</title>
-  <link rel="stylesheet" href="catalog.css?v=1">
+  <link rel="stylesheet" href="catalog.css?v=2">
 </head>
 <body>
   <header class="catalog-head">
-    <small>MELAKA PROPERTY</small>
-    <h1>Find Your Next Property</h1>
-    <p>Tong Xen [REN 51905] · Browse and select the listings you like.</p>
+    <nav><a class="brand" href="#list" aria-label="Tong Xen property listings"><span>TX</span><b>Tong Xen<small>REN 51905</small></b></a><a class="head-contact" href="https://wa.me/60166286918">WhatsApp</a></nav>
+    <div class="hero-copy"><small>MELAKA PROPERTY COLLECTION</small><h1>Find a place<br>that feels right.</h1><p>Browse my latest listings, save your favourites and enquire in one WhatsApp message.</p></div>
   </header>
   <main>
-    <div class="toolbar">
-      <input id="search" type="search" placeholder="Search location, type or price…">
-      <span id="count">Loading listings…</span>
+    <div class="toolbar-wrap">
+      <div class="toolbar"><label class="search-box"><span>⌕</span><input id="search" type="search" placeholder="Search location or property type…"></label><select id="dealFilter" aria-label="Filter by listing type"><option value="">Buy & Rent</option><option value="sale">For Sale</option><option value="rent">For Rent</option></select></div>
+      <div class="result-line"><h2>Available properties</h2><span id="count">Loading listings…</span></div>
     </div>
     <section id="list" class="catalog-grid"></section>
   </main>
   <div id="selectionBar" class="selection-bar hidden">
-    <b><span id="selectedCount">0</span> selected</b>
-    <button id="whatsappBtn">WhatsApp Tong Xen</button>
+    <div><b><span id="selectedCount">0</span> selected</b><small>Send all in one enquiry</small></div>
+    <button id="clearBtn" aria-label="Clear selection">Clear</button><button id="whatsappBtn">WhatsApp now</button>
   </div>
   <dialog id="detailDialog"><div id="detail"></div></dialog>
   <script src="supabase.js?v=2"></script>
-  <script src="catalog.js?v=3"></script>
+  <script src="catalog.js?v=4"></script>
 </body>
 </html>
