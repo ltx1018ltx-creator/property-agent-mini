@@ -217,7 +217,22 @@ $$('[data-calc]').forEach(b=>b.onclick=()=>{$$('[data-calc]').forEach(x=>x.class
 $('#exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agent-daily-backup.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded')};
 function toast(s){const x=$('#toast');x.textContent=s;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),1800)}
 function fillListingOptions(){const add=(el,items,first)=>{el.innerHTML=`<option value="">${first}</option>`+items.map(x=>`<option>${esc(x)}</option>`).join('')};$('#listingLocationOptions').innerHTML=listingLocations.map(x=>`<option value="${esc(x)}">`).join('');add($('#listingPropertyType'),propertyTypes,'Choose property type');add($('#listingLocationFilter'),listingLocations,'All locations');add($('#listingTypeFilter'),propertyTypes,'All property types');add($('#listingSubtypeFilter'),propertySubtypes,'All property subtypes');add($('#leadPropertyType'),propertyTypes,'Any property type')}
-async function loadCloud(){try{const [states,rows]=await Promise.all([sbJson(`/rest/v1/agent_states?user_id=eq.${session.user.id}&select=data`,{token:session.access_token}),sbJson('/rest/v1/team_listings?select=id,owner_id,listing,created_at&order=created_at.desc',{token:session.access_token})]);const remote=states[0]?.data;if(remote&&(remote.updatedAt||0)>=(db.updatedAt||0)){db={...remote,listings:[]}}else if(!states.length)await syncCloud(true);db.cases||=[];db.leads||=[];db.listings=rows.map(r=>({...r.listing,id:r.id,_ownerId:r.owner_id,_createdAt:r.created_at}));cacheLocal();setSync('Cloud synced');render()}catch(e){cloudError(e);render()}}
+async function loadTeamListings(){
+ const pageSize=5,rows=[];
+ for(let offset=0;;offset+=pageSize){
+  const page=await sbJson(`/rest/v1/team_listings?select=id,owner_id,listing,created_at&order=created_at.desc&limit=${pageSize}&offset=${offset}`,{token:session.access_token});
+  rows.push(...page);
+  if(page.length<pageSize)break;
+ }
+ return rows;
+}
+async function loadCloud(){try{
+ const statePath=`/rest/v1/agent_states?user_id=eq.${session.user.id}&select=updatedAt:data->updatedAt,leads:data->leads,cases:data->cases`;
+ const [states,rows]=await Promise.all([sbJson(statePath,{token:session.access_token}),loadTeamListings()]);
+ const remote=states[0]&&{updatedAt:states[0].updatedAt||0,leads:states[0].leads||[],cases:states[0].cases||[],listings:[]};
+ if(remote&&remote.updatedAt>=(db.updatedAt||0))db=remote;else if(!states.length)await syncCloud(true);
+ db.cases||=[];db.leads||=[];db.listings=rows.map(r=>({...r.listing,id:r.id,_ownerId:r.owner_id,_createdAt:r.created_at}));cacheLocal();setSync('Cloud synced');render();
+ }catch(e){cloudError(e);render()}}
 async function claimImport(){
  const q=new URLSearchParams(location.search),token=q.get('claim');if(!token)return;
  try{
