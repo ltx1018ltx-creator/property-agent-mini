@@ -3,7 +3,7 @@ let KEY='agentDaily.v1';
 const seed={leads:[{id:1,name:'Jason',phone:'',property:'Double Storey Terrace · RM430k',stage:'Negotiating',followUp:new Date().toISOString().slice(0,10),note:'Owner may negotiate from RM440k'}],listings:[]};
 const listingLocations=['Ayer Keroh','Alor Gajah','Ayer Molek','Ayer Pa\'abas','Bachang','Bandar Hilir','Batu Berendam','Bemban','Bertam','Bukit Baru','Bukit Beruang','Bukit Katil','Bukit Rambai','Cheng','Duyong','Durian Tunggal','Jasin','Jonker Walk','Kandang','Klebang','Krubong','Lendu','Limbongan','Lubok China','Machap','Malim Jaya','Masjid Tanah','Melaka Raya','Melaka Tengah','Merlimau','MITC','Nyalas','Padang Temu','Pantai Kundor','Paya Rumput','Pengkalan Balak','Pokok Mangga','Pulau Gadong','Pulau Sebang','Rembia','Selandar','Simpang Ampat','Sungai Udang','Taman Kota Laksamana','Tanjung Bidara','Tanjung Kling','Tanjung Minyak','Telok Mas','Ujong Pasir','Umbai'];
 const propertyTypes=['Terrace House','Semi-D / Cluster House','Bungalow','Townhouse','Condominium / Serviced Residence','Apartment / Flat','Shoplot','Warehouse / Factory','Semi-D Factory','Terrace Factory','Residential Land','Agricultural Land','Commercial Land','Industrial Land'];
-const propertySubtypes=['1 Storey','1.5 Storey','2 Storey','2.5 Storey','3 Storey','3.5 Storey','4 Storey','High-rise','Not Applicable'];
+const propertySubtypes=['1 Storey','1.5 Storey','2 Storey','2.5 Storey','3 Storey','3.5 Storey','4 Storey','High-rise','Corner Lot','Not Applicable'];
 let db={updatedAt:0,leads:[],listings:[],cases:[]},session=null;
 const LISTING_PAGE_SIZE=20;
 let visibleListingCount=LISTING_PAGE_SIZE;
