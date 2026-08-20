@@ -121,7 +121,14 @@ class Handler(SimpleHTTPRequestHandler):
                     # Supabase publishable keys are valid in `apikey`, but unlike
                     # legacy JWT anon keys they must not be sent as Bearer tokens.
                     req=Request(url,headers={'apikey':key})
-                    with urlopen(req,timeout=30) as res:page=json.loads(res.read() or b'[]')
+                    try:
+                        with urlopen(req,timeout=30) as res:page=json.loads(res.read() or b'[]')
+                    except HTTPError as e:
+                        if e.code not in (401,403) or key==SUPABASE_KEY:raise
+                        # A stale/rotated Render secret must not break the public
+                        # catalog; the anon key is intentionally read-only via RLS.
+                        req=Request(url,headers={'apikey':SUPABASE_KEY})
+                        with urlopen(req,timeout=30) as res:page=json.loads(res.read() or b'[]')
                     rows.extend(page)
                     if len(page)<page_size:break
                     offset+=page_size
