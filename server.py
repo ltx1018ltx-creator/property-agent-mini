@@ -120,10 +120,7 @@ class Handler(SimpleHTTPRequestHandler):
                     url=f'{SUPABASE_URL}/rest/v1/team_listings?owner_id=eq.{quote(owner,safe="")}&select=id,listing,created_at&order=created_at.desc&limit={page_size}&offset={offset}'
                     # Supabase publishable keys are valid in `apikey`, but unlike
                     # legacy JWT anon keys they must not be sent as Bearer tokens.
-                    headers={'apikey':key}
-                    if SUPABASE_SERVICE_ROLE_KEY:
-                        headers['Authorization']=f'Bearer {key}'
-                    req=Request(url,headers=headers)
+                    req=Request(url,headers={'apikey':key})
                     with urlopen(req,timeout=30) as res:page=json.loads(res.read() or b'[]')
                     rows.extend(page)
                     if len(page)<page_size:break
