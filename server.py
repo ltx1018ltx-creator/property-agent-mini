@@ -110,6 +110,21 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply(200,{'ok':True})
         except Exception:return self.reply(400,{'error':'invalid state'})
     def do_GET(self):
+        if self.path.startswith('/api/catalog/'):
+            try:
+                owner=self.path.split('/api/catalog/',1)[1].split('?',1)[0].strip()
+                if not owner or len(owner)>64:return self.reply(400,{'error':'invalid agent'})
+                key=SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
+                url=f'{SUPABASE_URL}/rest/v1/team_listings?owner_id=eq.{quote(owner,safe="")}&select=id,listing,created_at&order=created_at.desc'
+                req=Request(url,headers={'apikey':key,'Authorization':f'Bearer {key}'})
+                with urlopen(req,timeout=20) as res:rows=json.loads(res.read() or b'[]')
+                listings=[]
+                for row in rows:
+                    item=row.get('listing') if isinstance(row.get('listing'),dict) else {}
+                    listings.append({**item,'id':row.get('id'),'_createdAt':row.get('created_at')})
+                return self.reply(200,{'listings':listings})
+            except HTTPError as e:return self.reply(e.code if e.code<500 else 502,{'error':'catalog unavailable'})
+            except Exception:return self.reply(500,{'error':'catalog unavailable'})
         if self.path.startswith('/api/imports/'):
             sid=self.path.split('/')[-1].split('?')[0];item=load_imports().get(sid)
             return self.reply(200,item) if item else self.reply(404,{'error':'not found'})

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#12372a">
+  <title>Tong Xen · Property Listings</title>
+  <link rel="stylesheet" href="catalog.css?v=1">
+</head>
+<body>
+  <header class="catalog-head">
+    <small>MELAKA PROPERTY</small>
+    <h1>Find Your Next Property</h1>
+    <p>Tong Xen [REN 51905] · Browse and select the listings you like.</p>
+  </header>
+  <main>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search location, type or price…">
+      <span id="count">Loading listings…</span>
+    </div>
+    <section id="list" class="catalog-grid"></section>
+  </main>
+  <div id="selectionBar" class="selection-bar hidden">
+    <b><span id="selectedCount">0</span> selected</b>
+    <button id="whatsappBtn">WhatsApp Tong Xen</button>
+  </div>
+  <dialog id="detailDialog"><div id="detail"></div></dialog>
+  <script src="catalog.js?v=1"></script>
+</body>
+</html>
