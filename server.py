@@ -115,9 +115,14 @@ class Handler(SimpleHTTPRequestHandler):
                 owner=self.path.split('/api/catalog/',1)[1].split('?',1)[0].strip()
                 if not owner or len(owner)>64:return self.reply(400,{'error':'invalid agent'})
                 key=SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
-                url=f'{SUPABASE_URL}/rest/v1/team_listings?owner_id=eq.{quote(owner,safe="")}&select=id,listing,created_at&order=created_at.desc'
-                req=Request(url,headers={'apikey':key,'Authorization':f'Bearer {key}'})
-                with urlopen(req,timeout=20) as res:rows=json.loads(res.read() or b'[]')
+                rows=[];offset=0;page_size=10
+                while True:
+                    url=f'{SUPABASE_URL}/rest/v1/team_listings?owner_id=eq.{quote(owner,safe="")}&select=id,listing,created_at&order=created_at.desc&limit={page_size}&offset={offset}'
+                    req=Request(url,headers={'apikey':key,'Authorization':f'Bearer {key}'})
+                    with urlopen(req,timeout=30) as res:page=json.loads(res.read() or b'[]')
+                    rows.extend(page)
+                    if len(page)<page_size:break
+                    offset+=page_size
                 listings=[]
                 for row in rows:
                     item=row.get('listing') if isinstance(row.get('listing'),dict) else {}
