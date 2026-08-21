@@ -54,8 +54,9 @@ main{max-width:1160px;margin:auto;padding:0 20px 130px}
 dialog{width:min(780px,94vw);max-height:92vh;padding:0;border:0;border-radius:24px;overflow:auto;background:#fff}
 dialog::backdrop{background:#07150dd9;backdrop-filter:blur(4px)}
 .close{position:sticky;float:right;top:12px;right:12px;z-index:3;width:42px;height:42px;border:0;border-radius:50%;font-size:25px;background:#fff;box-shadow:0 3px 16px #0003;cursor:pointer}
-.gallery{display:flex;overflow:auto;scroll-snap-type:x mandatory;background:#e5e9e5}
-.gallery img{min-width:100%;height:min(58vh,480px);object-fit:cover;scroll-snap-align:start}
+.gallery{position:relative;background:#e5e9e5}
+.gallery img{display:block;width:100%;height:min(58vh,480px);object-fit:cover}
+.gallery-arrow{position:absolute;top:50%;z-index:2;transform:translateY(-50%);width:46px;height:46px;border:0;border-radius:50%;background:#111b;color:#fff;font:38px/1 system-ui;cursor:pointer;box-shadow:0 3px 14px #0005}.gallery-arrow.prev{left:14px}.gallery-arrow.next{right:14px}.gallery-count{position:absolute;right:15px;bottom:14px;padding:5px 10px;border-radius:99px;background:#111b;color:#fff;font-size:12px;font-weight:800}
 .detail-placeholder{height:300px;display:grid;place-items:center;background:#e4ebe5;font-size:60px;color:#789083}
 .detail-body{padding:25px}
 .detail-top{display:flex;justify-content:space-between;gap:20px;align-items:start}
