@@ -11,3 +11,12 @@ services:
         sync: false
       - key: SITE_URL
         value: https://property-agent-mini.onrender.com
+  - type: web
+    name: tong-xen-property
+    runtime: static
+    buildCommand: mkdir -p public && cp catalog.html catalog.css catalog.js supabase.js public/
+    staticPublishPath: ./public
+    routes:
+      - type: rewrite
+        source: /
+        destination: /catalog.html
