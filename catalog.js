@@ -1,6 +1,8 @@
 const $=s=>document.querySelector(s),esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'RM '+Number(n||0).toLocaleString('en-MY',{maximumFractionDigits:0});
 let listings=[],selected=new Set();
+// Keep the complete taxonomy visible so customers can filter for categories
+// even before the agent has an active listing in that category.
 const propertyTypes=['Terrace House','Semi-D / Cluster House','Bungalow','Townhouse','Condominium / Serviced Residence','Apartment / Flat','Shoplot','Warehouse / Factory','Semi-D Factory','Terrace Factory','Residential Land','Agricultural Land','Commercial Land','Industrial Land'];
 const propertySubtypes=['1 Storey','1.5 Storey','2 Storey','2.5 Storey','3 Storey','3.5 Storey','4 Storey','High-rise','Corner Lot'];
 const photos=x=>x.photos?.length?x.photos:(x.photo?[x.photo]:[]);
