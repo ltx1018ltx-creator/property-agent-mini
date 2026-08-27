@@ -113,7 +113,11 @@ body{background:#f7f1e9}
 .filter-panel{margin-top:10px;padding:20px;background:#fff;border-radius:20px;box-shadow:0 15px 38px #52342612}
 .filter-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}
 .filter-panel label{display:grid;gap:6px;color:#7d7067;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.filter-panel label small{font-size:9px;font-weight:600;text-transform:none;letter-spacing:0;color:#aa9b90}
 .filter-panel select{width:100%;min-width:0;padding:12px;border:1px solid #e8ddd1;border-radius:11px;background:#fbf8f4;color:#332923;font:500 13px inherit}
+.filter-panel select[multiple]{padding:5px;min-height:76px}
+.filter-panel select[multiple] option{padding:7px 8px;border-radius:7px}
+.filter-panel select[multiple] option:checked{background:#754633 linear-gradient(0deg,#754633,#754633);color:#fff}
 .filter-panel>button{margin-top:14px;border:0;background:none;color:#9a5a42;font-weight:800;cursor:pointer}
 .listing-card{border-color:#eadfd4}
 .card-media{background:#eee3d8}
