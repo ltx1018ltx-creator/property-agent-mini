@@ -71,7 +71,7 @@
           <label>Property type <small>Select one or more</small><select id="listingTypeFilter" multiple size="4"></select></label>
           <label>Subtype <small>Select one or more</small><select id="listingSubtypeFilter" multiple size="4"></select></label>
           <label>Tenure <small>Select one or more</small><select id="listingTenureFilter" multiple size="4"><option>Freehold</option><option>Leasehold</option></select></label>
-          <label>Price <small>Select one or more</small><select id="listingPriceFilter" multiple size="4"><option value="0-300000">Below RM300k</option><option value="300000-500000">RM300k–500k</option><option value="500000-800000">RM500k–800k</option><option value="800000-1000000">RM800k–1m</option><option value="1000000-2000000">RM1m–2m</option><option value="2000000-Infinity">Above RM2m</option></select></label>
+          <label>Price <small>Select one or more</small><select id="listingPriceFilter" multiple size="4"></select></label>
         </div>
         <button id="clearListingFilters">Clear filters</button>
       </div>
@@ -209,6 +209,6 @@ Send one listing object using fields such as location, propertyType, propertySub
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <dialog id="adminAgentDialog" class="admin-dialog"><div class="admin-dialog-body"><button type="button" class="dialog-close" id="closeAdminAgentDialog" aria-label="Close">×</button><h3 id="adminAgentTitle">Agent details</h3><p id="adminAgentMeta" class="admin-agent-meta"></p><div id="adminAgentDetails"></div></div></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=3"></script><script src="app.js?v=54"></script>
+  <script src="supabase.js?v=3"></script><script src="app.js?v=55"></script>
 </body>
 </html>
