@@ -54,6 +54,18 @@ class WebhookTests(unittest.TestCase):
         status,body,_=self.request('GET','/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=12345')
         self.assertEqual((status,body),(200,b'12345'))
 
+    def test_verification_access_log_omits_query_parameters_and_values(self):
+        with patch.object(server.Handler,'log_message') as access_log:
+            status,body,_=self.request(
+                'GET',
+                '/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=secret-challenge',
+            )
+        self.assertEqual((status,body),(200,b'secret-challenge'))
+        output=str(access_log.call_args_list)
+        self.assertIn('/api/whatsapp/webhook',output)
+        for sensitive in ('hub.mode','hub.verify_token','hub.challenge','verify-me','secret-challenge'):
+            self.assertNotIn(sensitive,output)
+
     def test_verification_rejects_wrong_token(self):
         status,_,_=self.request('GET','/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=12345')
         self.assertEqual(status,403)
