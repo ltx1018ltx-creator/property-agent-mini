@@ -67,6 +67,12 @@ def load_imports():
 def save_imports(data):IMPORTS.write_text(json.dumps(data,separators=(',',':')))
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT),**kw)
+    def log_request(self,code='-',size='-'):
+        parsed=urlsplit(self.path)
+        if parsed.path=='/api/whatsapp/webhook':
+            self.log_message('"%s %s %s" %s %s',self.command,parsed.path,self.request_version,str(code),str(size))
+            return
+        super().log_request(code,size)
     def end_headers(self):
         if self.path.endswith(('.html','.js','.css','/')):self.send_header('Cache-Control','no-cache, no-store, must-revalidate')
         super().end_headers()
