@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-import json, os, secrets
+import hashlib, hmac, json, logging, os, secrets, threading
+from collections import OrderedDict
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 ROOT=Path(__file__).resolve().parent
@@ -14,6 +16,47 @@ SUPABASE_URL=os.environ.get('SUPABASE_URL','https://nqruxoniebjqyegudyku.supabas
 SUPABASE_KEY=os.environ.get('SUPABASE_ANON_KEY','sb_publishable_XN56JH2JPCjbLQYR2ejjDQ_EpP0TaDJ')
 SUPABASE_SERVICE_ROLE_KEY=os.environ.get('SUPABASE_SECRET_KEY') or os.environ.get('SUPABASE_SERVICE_ROLE_KEY','')
 SITE_URL=os.environ.get('SITE_URL','https://property-agent-mini.onrender.com').rstrip('/')
+WEBHOOK_MAX_BYTES=1_000_000
+_webhook_events=OrderedDict()
+_webhook_events_lock=threading.Lock()
+_webhook_logger=logging.getLogger('whatsapp.webhook')
+
+def redact_identifier(value):
+    """Return a keyed, stable label instead of a phone/account ID."""
+    if value is None:return None
+    key=os.environ.get('META_APP_SECRET','').encode()
+    return 'hmac:'+hmac.new(key,str(value).encode(),hashlib.sha256).hexdigest()[:12]
+
+def webhook_metadata(payload):
+    """Yield the explicitly allow-listed metadata for WhatsApp message events."""
+    for entry in payload.get('entry',[]) if isinstance(payload,dict) else []:
+        for change in entry.get('changes',[]) if isinstance(entry,dict) else []:
+            value=change.get('value',{}) if isinstance(change,dict) else {}
+            if not isinstance(value,dict):continue
+            account=(value.get('metadata') or {}).get('phone_number_id')
+            groups=((value.get('messages',[]),'inbound'),
+                    (value.get('message_echoes',[]),'business_app_echo'))
+            for messages,kind in groups:
+                for message in messages if isinstance(messages,list) else []:
+                    if not isinstance(message,dict):continue
+                    echo=kind=='business_app_echo' or message.get('is_echo') is True
+                    yield {
+                        'event_type':message.get('type') or change.get('field') or 'message',
+                        'message_id':message.get('id'),
+                        'sender':redact_identifier(message.get('from')),
+                        'recipient':redact_identifier(message.get('to') or account),
+                        'message_kind':'business_app_echo' if echo else 'inbound',
+                    }
+
+def is_duplicate_webhook(body):
+    """Bound memory while suppressing repeated delivery logging within this process."""
+    digest=hashlib.sha256(body).digest()
+    with _webhook_events_lock:
+        duplicate=digest in _webhook_events
+        _webhook_events[digest]=None
+        _webhook_events.move_to_end(digest)
+        while len(_webhook_events)>2048:_webhook_events.popitem(last=False)
+    return duplicate
 def load():
     try:return json.loads(DATA.read_text())
     except:return {}
@@ -29,7 +72,28 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
     def reply(self,status,payload):
         body=json.dumps(payload).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
+    def reply_text(self,status,payload):
+        body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
+        if urlsplit(self.path).path=='/api/whatsapp/webhook':
+            secret=os.environ.get('META_APP_SECRET','')
+            if not secret:return self.reply(503,{'error':'webhook is not configured'})
+            try:size=int(self.headers.get('Content-Length',''))
+            except ValueError:return self.reply(400,{'error':'invalid request'})
+            if size<0 or size>WEBHOOK_MAX_BYTES:return self.reply(413,{'error':'payload too large'})
+            body=self.rfile.read(size)
+            supplied=self.headers.get('X-Hub-Signature-256','')
+            expected='sha256='+hmac.new(secret.encode(),body,hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(supplied,expected):return self.reply(401,{'error':'invalid signature'})
+            try:
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError()
+            except (UnicodeDecodeError,json.JSONDecodeError,ValueError):
+                return self.reply(400,{'error':'invalid payload'})
+            duplicate=is_duplicate_webhook(body)
+            if not duplicate:
+                for metadata in webhook_metadata(payload):_webhook_logger.info('%s',json.dumps(metadata,separators=(',',':')))
+            return self.reply(200,{'ok':True,'duplicate':duplicate})
         if self.path=='/api/admin/invite':
             try:
                 if not SUPABASE_SERVICE_ROLE_KEY:return self.reply(503,{'error':'Invite service is not configured yet'})
@@ -110,6 +174,14 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply(200,{'ok':True})
         except Exception:return self.reply(400,{'error':'invalid state'})
     def do_GET(self):
+        parsed=urlsplit(self.path)
+        if parsed.path=='/api/whatsapp/webhook':
+            query=parse_qs(parsed.query)
+            token=os.environ.get('WHATSAPP_VERIFY_TOKEN','')
+            supplied=query.get('hub.verify_token',[''])[0]
+            if token and query.get('hub.mode',[''])[0]=='subscribe' and hmac.compare_digest(supplied,token):
+                return self.reply_text(200,query.get('hub.challenge',[''])[0])
+            return self.reply(403,{'error':'verification failed'})
         if self.path.startswith('/api/catalog/'):
             try:
                 owner=self.path.split('/api/catalog/',1)[1].split('?',1)[0].strip()
@@ -154,5 +226,6 @@ class Handler(SimpleHTTPRequestHandler):
         sid=self.path.split('/')[-1].split('?')[0];data=load_imports()
         if sid not in data:return self.reply(404,{'error':'not found'})
         del data[sid];save_imports(data);self.reply(200,{'ok':True})
-port=int(os.environ.get('PORT','8080'))
-ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
+if __name__=='__main__':
+    port=int(os.environ.get('PORT','8080'))
+    ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
