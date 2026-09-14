@@ -34,19 +34,44 @@ def webhook_metadata(payload):
             value=change.get('value',{}) if isinstance(change,dict) else {}
             if not isinstance(value,dict):continue
             account=(value.get('metadata') or {}).get('phone_number_id')
-            groups=((value.get('messages',[]),'inbound'),
-                    (value.get('message_echoes',[]),'business_app_echo'))
+            # Coexistence echoes use the normal `messages` array under an
+            # `smb_message_echoes` change. Keep accepting `message_echoes` as
+            # well for compatibility with earlier Meta payload examples.
+            field=change.get('field')
+            messages=value.get('messages',[])
+            if field=='smb_message_echoes':groups=((messages,'business_app_echo'),)
+            else:groups=((messages,'inbound'),(value.get('message_echoes',[]),'business_app_echo'))
             for messages,kind in groups:
                 for message in messages if isinstance(messages,list) else []:
                     if not isinstance(message,dict):continue
                     echo=kind=='business_app_echo' or message.get('is_echo') is True
+                    message_type=message.get('type')
+                    content=message.get(message_type,{}) if isinstance(message_type,str) else {}
+                    if not isinstance(content,dict):content={}
                     yield {
-                        'event_type':message.get('type') or change.get('field') or 'message',
-                        'message_id':message.get('id'),
+                        'event_type':'smb_message_echoes' if echo else 'messages',
+                        'meta_message_id':message.get('id'),
+                        'message_type':message_type,
+                        'text':(message.get('text') or {}).get('body') if message_type=='text' else content.get('caption'),
+                        'meta_media_id':content.get('id') if message_type in ('image','video','document','audio','sticker') else None,
                         'sender':redact_identifier(message.get('from')),
                         'recipient':redact_identifier(message.get('to') or account),
-                        'message_kind':'business_app_echo' if echo else 'inbound',
+                        'timestamp':message.get('timestamp'),
                     }
+
+def ingestion_enabled():
+    return os.environ.get('WHATSAPP_INGESTION_ENABLED','false').strip().lower() in ('1','true','yes','on')
+
+def store_whatsapp_message(message):
+    """Persist one allow-listed event through the service-role-only RPC."""
+    if not SUPABASE_SERVICE_ROLE_KEY:raise RuntimeError('service role is not configured')
+    body=json.dumps({'event':message},separators=(',',':')).encode()
+    req=Request(f'{SUPABASE_URL}/rest/v1/rpc/ingest_whatsapp_message',data=body,method='POST',headers={
+        'apikey':SUPABASE_SERVICE_ROLE_KEY,
+        'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}',
+        'Content-Type':'application/json',
+    })
+    with urlopen(req,timeout=20) as res:res.read()
 
 def is_duplicate_webhook(body):
     """Bound memory while suppressing repeated delivery logging within this process."""
@@ -97,8 +122,18 @@ class Handler(SimpleHTTPRequestHandler):
             except (UnicodeDecodeError,json.JSONDecodeError,ValueError):
                 return self.reply(400,{'error':'invalid payload'})
             duplicate=is_duplicate_webhook(body)
+            messages=list(webhook_metadata(payload))
             if not duplicate:
-                for metadata in webhook_metadata(payload):_webhook_logger.info('%s',json.dumps(metadata,separators=(',',':')))
+                for metadata in messages:
+                    safe_log={k:metadata.get(k) for k in ('event_type','meta_message_id','message_type','sender','recipient')}
+                    _webhook_logger.info('%s',json.dumps(safe_log,separators=(',',':')))
+            if ingestion_enabled():
+                try:
+                    for message in messages:
+                        if message.get('meta_message_id'):store_whatsapp_message(message)
+                except Exception:
+                    _webhook_logger.exception('WhatsApp ingestion failed')
+                    return self.reply(503,{'error':'ingestion unavailable'})
             return self.reply(200,{'ok':True,'duplicate':duplicate})
         if self.path=='/api/admin/invite':
             try:
