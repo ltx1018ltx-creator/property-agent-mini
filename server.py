@@ -62,16 +62,31 @@ def webhook_metadata(payload):
 def ingestion_enabled():
     return os.environ.get('WHATSAPP_INGESTION_ENABLED','false').strip().lower() in ('1','true','yes','on')
 
+def redacted_http_body(body):
+    """Describe an upstream body without exposing any of its contents."""
+    if not body:return '<empty>'
+    return f'<redacted: {len(body)} bytes, sha256={hashlib.sha256(body).hexdigest()[:12]}>'
+
 def store_whatsapp_message(message):
     """Persist one allow-listed event through the service-role-only RPC."""
     if not SUPABASE_SERVICE_ROLE_KEY:raise RuntimeError('service role is not configured')
     body=json.dumps({'event':message},separators=(',',':')).encode()
-    req=Request(f'{SUPABASE_URL}/rest/v1/rpc/ingest_whatsapp_message',data=body,method='POST',headers={
+    rpc_url=f'{SUPABASE_URL.rstrip("/")}/rest/v1/rpc/ingest_whatsapp_message'
+    req=Request(rpc_url,data=body,method='POST',headers={
         'apikey':SUPABASE_SERVICE_ROLE_KEY,
         'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}',
         'Content-Type':'application/json',
     })
-    with urlopen(req,timeout=20) as res:res.read()
+    try:
+        with urlopen(req,timeout=20) as res:res.read()
+    except HTTPError as error:
+        try:response_body=error.read()
+        except Exception:response_body=b''
+        _webhook_logger.error(
+            'Supabase WhatsApp ingestion failed: status=%s response_body=%s',
+            error.code,redacted_http_body(response_body),
+        )
+        raise
 
 def is_duplicate_webhook(body):
     """Bound memory while suppressing repeated delivery logging within this process."""
