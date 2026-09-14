@@ -6,6 +6,9 @@ import logging
 import os
 import threading
 import unittest
+from io import BytesIO
+from pathlib import Path
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 import server
@@ -28,7 +31,8 @@ class WebhookTests(unittest.TestCase):
 
     def setUp(self):
         server._webhook_events.clear()
-        self.env=patch.dict(os.environ,{'WHATSAPP_VERIFY_TOKEN':'verify-me','META_APP_SECRET':'app-secret'})
+        self.env=patch.dict(os.environ,{'WHATSAPP_VERIFY_TOKEN':'verify-me','META_APP_SECRET':'app-secret',
+                                        'WHATSAPP_INGESTION_ENABLED':'false'})
         self.env.start()
 
     def tearDown(self):
@@ -88,7 +92,7 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(self.signed_post(payload)[0],200)
         output=' '.join(logs.output)
         self.assertIn('wamid.abc',output)
-        self.assertIn('"message_kind":"inbound"',output)
+        self.assertIn('"event_type":"messages"',output)
         self.assertIn('hmac:',output)
         self.assertNotIn('60123456789',output)
         self.assertNotIn('TOP SECRET',output)
@@ -97,14 +101,99 @@ class WebhookTests(unittest.TestCase):
     def test_business_app_message_echo_is_classified(self):
         payload={'object':'whatsapp_business_account','entry':[{'changes':[{
             'field':'smb_message_echoes','value':{'metadata':{'phone_number_id':'15550001111'},
-            'message_echoes':[{'id':'wamid.echo','from':'15550001111','to':'60123456789',
-            'type':'image','image':{'data':'PRIVATE'}}]}}]}]}
+            'messages':[{'id':'wamid.echo','from':'15550001111','to':'60123456789',
+            'type':'image','image':{'id':'media.1','caption':'PRIVATE','data':'NEVER STORE'},
+            'timestamp':'1789344000'}]}}]}]}
         with self.assertLogs('whatsapp.webhook',logging.INFO) as logs:
             self.assertEqual(self.signed_post(payload)[0],200)
         output=' '.join(logs.output)
-        self.assertIn('"message_kind":"business_app_echo"',output)
+        self.assertIn('"event_type":"smb_message_echoes"',output)
         self.assertNotIn('PRIVATE',output)
+        self.assertNotIn('NEVER STORE',output)
         self.assertNotIn('60123456789',output)
+
+    def test_disabled_ingestion_makes_no_supabase_request(self):
+        payload=self.message_payload({'id':'wamid.off','from':'1','type':'text','text':{'body':'hello'},
+                                      'timestamp':'1789344000'})
+        with patch.object(server,'urlopen') as urlopen:
+            self.assertEqual(self.signed_post(payload)[0],200)
+        urlopen.assert_not_called()
+
+    def test_real_style_echo_text_caption_and_multiple_images_are_allow_listed(self):
+        payload={'object':'whatsapp_business_account','entry':[{'changes':[{
+            'field':'smb_message_echoes','value':{'metadata':{'phone_number_id':'15550001111'},'messages':[
+                {'id':'wamid.text','from':'15550001111','to':'60123','timestamp':'1789344000',
+                 'type':'text','text':{'body':'Three-bedroom condo'}},
+                {'id':'wamid.image1','from':'15550001111','to':'60123','timestamp':'1789344001',
+                 'type':'image','image':{'id':'media.one','caption':'Living room','sha256':'secret'}},
+                {'id':'wamid.image2','from':'15550001111','to':'60123','timestamp':'1789344002',
+                 'type':'image','image':{'id':'media.two'}},
+            ]}}]}]}
+        captured=[]
+        class Response:
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def read(self):return b'"submission-id"'
+        def receive(req,timeout):
+            captured.append(json.loads(req.data)['event'])
+            self.assertEqual(req.full_url,'https://project.supabase.co/rest/v1/rpc/ingest_whatsapp_message')
+            self.assertEqual(req.get_method(),'POST')
+            self.assertEqual(req.headers['Apikey'],'service-role-test')
+            self.assertEqual(req.headers['Authorization'],'Bearer service-role-test')
+            self.assertEqual(req.headers['Content-type'],'application/json')
+            self.assertEqual(set(json.loads(req.data)),{'event'})
+            return Response()
+        with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true'}), \
+             patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','service-role-test'), \
+             patch.object(server,'SUPABASE_URL','https://project.supabase.co///'), \
+             patch.object(server,'urlopen',side_effect=receive):
+            self.assertEqual(self.signed_post(payload)[0],200)
+        self.assertEqual([e['meta_message_id'] for e in captured],['wamid.text','wamid.image1','wamid.image2'])
+        self.assertEqual(captured[0]['text'],'Three-bedroom condo')
+        self.assertEqual((captured[1]['text'],captured[1]['meta_media_id']),('Living room','media.one'))
+        self.assertEqual(captured[2]['meta_media_id'],'media.two')
+        serialized=json.dumps(captured)
+        self.assertNotIn('sha256',serialized)
+        self.assertNotIn('secret',serialized)
+        self.assertNotIn('15550001111',serialized)
+        self.assertNotIn('60123',serialized)
+
+    def test_supabase_http_error_logs_status_and_redacted_response(self):
+        payload=self.message_payload({
+            'id':'wamid.failure','from':'15551234567','to':'60123456789','timestamp':'1789344000',
+            'type':'image','image':{'id':'private-media-id','caption':'private caption'},
+        })
+        error_body=json.dumps({
+            'code':'PGRST202',
+            'message':'private caption 15551234567 private-media-id',
+            'details':'Bearer service-role-test wamid.failure',
+        }).encode()
+        error=HTTPError('https://project.supabase.co/rest/v1/rpc/ingest_whatsapp_message',404,
+                        'Not Found',{},BytesIO(error_body))
+        with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true'}), \
+             patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','service-role-test'), \
+             patch.object(server,'SUPABASE_URL','https://project.supabase.co/'), \
+             patch.object(server,'urlopen',side_effect=error), \
+             self.assertLogs('whatsapp.webhook',logging.ERROR) as logs:
+            status,_,_=self.signed_post(payload)
+        self.assertEqual(status,503)
+        output=' '.join(logs.output)
+        self.assertIn('status=404',output)
+        self.assertIn('PGRST202',output)
+        self.assertIn('[redacted]',output)
+        for secret in ('service-role-test','private caption','private-media-id','15551234567','60123456789'):
+            self.assertNotIn(secret,output)
+
+    def test_database_migration_deduplicates_and_batches_for_60_seconds(self):
+        sql=(Path(__file__).parents[1]/'supabase/migrations/202609140001_whatsapp_ingestion_phase1.sql').read_text()
+        self.assertIn('meta_message_id text not null unique',sql)
+        self.assertIn("interval '60 seconds'",sql)
+        self.assertIn('pg_advisory_xact_lock',sql)
+        self.assertIn('on conflict (meta_message_id) do nothing',sql)
+        self.assertIn('enable row level security',sql)
+        self.assertIn('force row level security',sql)
+        self.assertIn('to service_role',sql)
+        self.assertNotIn('team_listings',sql)
 
     @staticmethod
     def message_payload(message):
