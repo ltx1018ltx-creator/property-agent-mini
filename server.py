@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, hmac, json, logging, os, secrets, threading
+import hashlib, hmac, json, logging, os, re, secrets, threading
 from collections import OrderedDict
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -18,6 +18,7 @@ SUPABASE_SERVICE_ROLE_KEY=os.environ.get('SUPABASE_SECRET_KEY') or os.environ.ge
 SITE_URL=os.environ.get('SITE_URL','https://property-agent-mini.onrender.com').rstrip('/')
 WEBHOOK_MAX_BYTES=1_000_000
 WHATSAPP_INGESTION_RPC_PATH='/rest/v1/rpc/ingest_whatsapp_message'
+SUPABASE_ERROR_MESSAGE_MAX_CHARS=300
 _webhook_events=OrderedDict()
 _webhook_events_lock=threading.Lock()
 _webhook_logger=logging.getLogger('whatsapp.webhook')
@@ -92,6 +93,44 @@ def webhook_metadata(payload):
 def ingestion_enabled():
     return os.environ.get('WHATSAPP_INGESTION_ENABLED','false').strip().lower() in ('1','true','yes','on')
 
+def sanitized_supabase_error_message(value,sensitive_values=()):
+    """Return a bounded PostgREST message with request data and secrets removed."""
+    if not isinstance(value,str):return '<unavailable>'
+    message=value
+    sensitive=(SUPABASE_SERVICE_ROLE_KEY,SUPABASE_KEY,os.environ.get('META_APP_SECRET',''),
+               os.environ.get('WHATSAPP_VERIFY_TOKEN',''),*sensitive_values)
+    for secret in sorted({str(item) for item in sensitive if item is not None and len(str(item))>=4},
+                         key=len,reverse=True):
+        message=re.sub(re.escape(secret),'<redacted>',message,flags=re.IGNORECASE)
+    message=re.sub(r'https?://[^\s/]+(?:/[^\s]*)?','<redacted-url>',message,flags=re.IGNORECASE)
+    message=re.sub(r'\bbearer\s+[^\s,;]+','Bearer <redacted>',message,flags=re.IGNORECASE)
+    message=re.sub(r'\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b','<redacted-jwt>',message)
+    message=re.sub(r'\bsb_(?:secret|service_role)_[A-Za-z0-9._-]+\b','<redacted-secret>',message,
+                   flags=re.IGNORECASE)
+    message=re.sub(
+        r'\b(api[_ -]?key|token|secret|password|authorization)\b\s*[:=]\s*(?:"[^"]*"|\'[^\']*\'|[^\s,;]+)',
+        r'\1=<redacted>',message,flags=re.IGNORECASE,
+    )
+    message=re.sub(r'(?<!\w)\+?(?:\d[\s().-]?){7,}\d(?!\w)','<redacted-phone>',message)
+    message=' '.join(message.split())
+    return message[:SUPABASE_ERROR_MESSAGE_MAX_CHARS] or '<unavailable>'
+
+def supabase_error_fields(body,sensitive_values=()):
+    """Extract only safe, allow-listed diagnostics from a PostgREST response."""
+    try:payload=json.loads(body)
+    except (TypeError,UnicodeDecodeError,json.JSONDecodeError):payload={}
+    if not isinstance(payload,dict):payload={}
+    code=payload.get('code')
+    if not isinstance(code,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',code):code='<unavailable>'
+    return code,sanitized_supabase_error_message(payload.get('message'),sensitive_values)
+
+def string_values(value):
+    """Collect request strings so an upstream echo cannot expose payload data."""
+    if isinstance(value,str):return (value,)
+    if isinstance(value,dict):return tuple(item for child in value.values() for item in string_values(child))
+    if isinstance(value,(list,tuple)):return tuple(item for child in value for item in string_values(child))
+    return ()
+
 def store_whatsapp_message(message):
     """Persist one allow-listed event through the service-role-only RPC."""
     if not SUPABASE_SERVICE_ROLE_KEY:raise RuntimeError('service role is not configured')
@@ -105,7 +144,13 @@ def store_whatsapp_message(message):
     try:
         with urlopen(req,timeout=20) as res:res.read()
     except HTTPError as error:
-        error.read()
+        try:response_body=error.read()
+        except Exception:response_body=b''
+        code,safe_message=supabase_error_fields(response_body,string_values(message))
+        _webhook_logger.error(
+            'Supabase WhatsApp ingestion failed: status=%s code=%s message=%s operation=%s',
+            error.code,code,safe_message,'store_whatsapp_message',
+        )
         raise
 
 def is_duplicate_webhook(body):
@@ -165,27 +210,49 @@ class Handler(SimpleHTTPRequestHandler):
                 )
             enabled=ingestion_enabled()
             ingestible=[]
+            ingestion_counts=OrderedDict()
             for field,classification,message,skip_reason in parsed:
+                counts=ingestion_counts.setdefault(
+                    classification,{'item_count':0,'stored_count':0,'skipped_count':0},
+                )
+                counts['item_count']+=1
                 has_id=bool(message and message.get('meta_message_id'))
                 if message is not None and has_id and enabled:
                     ingestible.append((field,classification,message))
                     continue
                 reason=skip_reason or 'ingestion_disabled'
+                counts['skipped_count']+=1
                 _webhook_logger.info(
                     'WhatsApp webhook item: field=%s classification=%s item_count=1 has_id=%s skip_reason=%s',
                     field,classification,str(has_id).lower(),reason,
                 )
             for field,classification,message in ingestible:
-                try:store_whatsapp_message(message)
-                except Exception:
+                try:
+                    store_whatsapp_message(message)
+                except Exception as error:
+                    failure_category='postgrest_http_error' if isinstance(error,HTTPError) else 'unexpected_exception'
                     _webhook_logger.error(
                         'WhatsApp webhook item: field=%s classification=%s '
-                        'item_count=1 has_id=true skip_reason=ingestion_failed',field,classification,
+                        'item_count=1 has_id=true skip_reason=ingestion_failed failure_category=%s '
+                        'exception_class=%s operation=%s',field,classification,failure_category,
+                        type(error).__name__,'store_whatsapp_message',
                     )
                     return self.reply(503,{'error':'ingestion unavailable'})
+                ingestion_counts.setdefault(classification,{'item_count':1,'stored_count':0,'skipped_count':0})['stored_count']+=1
                 _webhook_logger.info(
                     'WhatsApp webhook item: field=%s classification=%s '
                     'item_count=1 has_id=true skip_reason=none',field,classification,
+                )
+            if not ingestion_counts:
+                for _,classification,_,_ in structures:
+                    ingestion_counts.setdefault(
+                        classification,{'item_count':0,'stored_count':0,'skipped_count':0},
+                    )
+            for classification,counts in ingestion_counts.items():
+                _webhook_logger.info(
+                    'WhatsApp webhook ingestion succeeded: classification=%s item_count=%s '
+                    'stored_count=%s skipped_count=%s',classification,counts['item_count'],
+                    counts['stored_count'],counts['skipped_count'],
                 )
             return self.reply(200,{'ok':True,'duplicate':duplicate})
         if self.path=='/api/admin/invite':
