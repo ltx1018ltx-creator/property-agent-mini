@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-import hashlib, hmac, json, logging, os, re, secrets, threading
+import hashlib, hmac, json, logging, os, re, secrets, socket, threading
 from collections import OrderedDict
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.parse import parse_qs, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 ROOT=Path(__file__).resolve().parent
 DATA=ROOT/'shares.json'
@@ -19,6 +19,10 @@ SITE_URL=os.environ.get('SITE_URL','https://property-agent-mini.onrender.com').r
 WEBHOOK_MAX_BYTES=1_000_000
 WHATSAPP_INGESTION_RPC_PATH='/rest/v1/rpc/ingest_whatsapp_message'
 SUPABASE_ERROR_MESSAGE_MAX_CHARS=300
+WHATSAPP_MEDIA_BUCKET='whatsapp-ingestion'
+WHATSAPP_MEDIA_MAX_BYTES=15*1024*1024
+WHATSAPP_MEDIA_TIMEOUT_SECONDS=10
+WHATSAPP_MEDIA_MIME_TYPES=frozenset(('image/jpeg','image/png','image/webp'))
 _webhook_events=OrderedDict()
 _webhook_events_lock=threading.Lock()
 _webhook_logger=logging.getLogger('whatsapp.webhook')
@@ -93,6 +97,10 @@ def webhook_metadata(payload):
 def ingestion_enabled():
     return os.environ.get('WHATSAPP_INGESTION_ENABLED','false').strip().lower() in ('1','true','yes','on')
 
+def media_ingestion_enabled():
+    """Media ingestion is deliberately stricter than the Phase 1 flag."""
+    return os.environ.get('WHATSAPP_MEDIA_INGESTION_ENABLED','')=='true'
+
 def sanitized_supabase_error_message(value,sensitive_values=()):
     """Return a bounded PostgREST message with request data and secrets removed."""
     if not isinstance(value,str):return '<unavailable>'
@@ -142,7 +150,7 @@ def store_whatsapp_message(message):
         'Content-Type':'application/json',
     })
     try:
-        with urlopen(req,timeout=20) as res:res.read()
+        with urlopen(req,timeout=20) as res:response=res.read()
     except HTTPError as error:
         try:response_body=error.read()
         except Exception:response_body=b''
@@ -152,6 +160,104 @@ def store_whatsapp_message(message):
             error.code,code,safe_message,'store_whatsapp_message',
         )
         raise
+    try:return str(json.loads(response))
+    except (UnicodeDecodeError,json.JSONDecodeError,TypeError):return None
+
+def _service_rpc(name,payload):
+    """Call a media RPC without allowing upstream response text into logs."""
+    if not SUPABASE_SERVICE_ROLE_KEY:raise RuntimeError('service role is not configured')
+    req=Request(f'{SUPABASE_URL}/rest/v1/rpc/{name}',data=json.dumps(payload,separators=(',',':')).encode(),
+                method='POST',headers={'apikey':SUPABASE_SERVICE_ROLE_KEY,
+                'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','Content-Type':'application/json'})
+    with urlopen(req,timeout=WHATSAPP_MEDIA_TIMEOUT_SECONDS) as res:return json.loads(res.read() or b'null')
+
+def _is_meta_host(host):
+    host=(host or '').rstrip('.').lower()
+    return host in ('graph.facebook.com','lookaside.fbsbx.com') or any(
+        host.endswith(suffix) for suffix in ('.facebook.com','.fbcdn.net','.fbsbx.com'))
+
+class SafeMetaRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self,req,fp,code,msg,headers,newurl):
+        parsed=urlsplit(newurl)
+        if parsed.scheme!='https' or not _is_meta_host(parsed.hostname):
+            raise ValueError('unsafe media redirect')
+        redirected=super().redirect_request(req,fp,code,msg,headers,newurl)
+        if redirected is not None:
+            redirected.add_unredirected_header('Authorization',req.get_header('Authorization'))
+        return redirected
+
+def open_meta_media(req):
+    return build_opener(SafeMetaRedirectHandler()).open(req,timeout=WHATSAPP_MEDIA_TIMEOUT_SECONDS)
+
+def _normalized_mime(value):
+    return (value or '').split(';',1)[0].strip().lower()
+
+def _matches_image_signature(content,mime):
+    if mime=='image/jpeg':return content.startswith(b'\xff\xd8\xff')
+    if mime=='image/png':return content.startswith(b'\x89PNG\r\n\x1a\n')
+    if mime=='image/webp':return len(content)>=12 and content[:4]==b'RIFF' and content[8:12]==b'WEBP'
+    return False
+
+def _download_meta_image(media_id,token):
+    metadata_req=Request(f'https://graph.facebook.com/v23.0/{quote(media_id,safe="")}',headers={
+        'Authorization':f'Bearer {token}','Accept':'application/json'})
+    with open_meta_media(metadata_req) as response:
+        metadata=json.loads(response.read(64*1024))
+    signed_url=metadata.get('url') if isinstance(metadata,dict) else None
+    mime=_normalized_mime(metadata.get('mime_type')) if isinstance(metadata,dict) else ''
+    size=metadata.get('file_size') if isinstance(metadata,dict) else None
+    parsed=urlsplit(signed_url) if isinstance(signed_url,str) else None
+    if not parsed or parsed.scheme!='https' or not _is_meta_host(parsed.hostname):raise ValueError('unsafe_media_host')
+    if mime not in WHATSAPP_MEDIA_MIME_TYPES:raise ValueError('invalid_mime_type')
+    if not isinstance(size,int) or size<0 or size>WHATSAPP_MEDIA_MAX_BYTES:raise ValueError('invalid_size')
+    download_req=Request(signed_url,headers={'Authorization':f'Bearer {token}'})
+    with open_meta_media(download_req) as response:
+        response_mime=_normalized_mime(response.headers.get('Content-Type'))
+        length=response.headers.get('Content-Length')
+        if response_mime!=mime:raise ValueError('invalid_mime_type')
+        if length is not None and (not length.isdigit() or int(length)>WHATSAPP_MEDIA_MAX_BYTES):
+            raise ValueError('invalid_size')
+        content=response.read(WHATSAPP_MEDIA_MAX_BYTES+1)
+    if len(content)>WHATSAPP_MEDIA_MAX_BYTES or len(content)!=size:raise ValueError('invalid_size')
+    if not _matches_image_signature(content,mime):raise ValueError('invalid_mime_type')
+    return content,mime
+
+def _media_error_code(error):
+    if isinstance(error,(TimeoutError,socket.timeout)):return 'timeout'
+    if isinstance(error,ValueError) and str(error) in ('invalid_mime_type','invalid_size','unsafe_media_host'):
+        return str(error)
+    if isinstance(error,ValueError) and str(error)=='unsafe media redirect':return 'unsafe_redirect'
+    if isinstance(error,HTTPError):return 'upstream_http_error'
+    return 'download_failed'
+
+def ingest_whatsapp_image(message):
+    """Claim, download, and privately store one image; never raise into Phase 1."""
+    if not media_ingestion_enabled() or message.get('message_type')!='image':return
+    token=os.environ.get('WHATSAPP_ACCESS_TOKEN','')
+    if not token:
+        _webhook_logger.error('WhatsApp media ingestion failed: error_code=configuration_missing')
+        return
+    try:
+        claim=_service_rpc('claim_whatsapp_image',{'message_id':message.get('meta_message_id')})
+        claim=claim[0] if isinstance(claim,list) and claim else None
+        if not claim or not claim.get('claimed'):return
+        content,mime=_download_meta_image(message.get('meta_media_id'),token)
+        path=claim['storage_path']
+        req=Request(f'{SUPABASE_URL}/storage/v1/object/{WHATSAPP_MEDIA_BUCKET}/{quote(path,safe="/")}',
+                    data=content,method='POST',headers={'apikey':SUPABASE_SERVICE_ROLE_KEY,
+                    'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','Content-Type':mime,'x-upsert':'false'})
+        with urlopen(req,timeout=WHATSAPP_MEDIA_TIMEOUT_SECONDS) as response:response.read()
+        _service_rpc('finish_whatsapp_image',{'message_id':message.get('meta_message_id'),
+                     'new_status':'stored','mime_type':mime,'size_bytes':len(content),'error_code':None})
+        _webhook_logger.info('WhatsApp media ingestion succeeded: status=stored')
+    except Exception as error:
+        code=_media_error_code(error)
+        try:
+            _service_rpc('finish_whatsapp_image',{'message_id':message.get('meta_message_id'),
+                         'new_status':'rejected' if code in ('invalid_mime_type','invalid_size','unsafe_media_host','unsafe_redirect') else 'failed',
+                         'mime_type':None,'size_bytes':None,'error_code':code})
+        except Exception:pass
+        _webhook_logger.error('WhatsApp media ingestion failed: error_code=%s exception_class=%s',code,type(error).__name__)
 
 def is_duplicate_webhook(body):
     """Bound memory while suppressing repeated delivery logging within this process."""
@@ -238,6 +344,9 @@ class Handler(SimpleHTTPRequestHandler):
                         type(error).__name__,'store_whatsapp_message',
                     )
                     return self.reply(503,{'error':'ingestion unavailable'})
+                # Media is deliberately best-effort after the durable Phase 1 row.
+                # Its failures are recorded independently and never undo the message.
+                ingest_whatsapp_image(message)
                 ingestion_counts.setdefault(classification,{'item_count':1,'stored_count':0,'skipped_count':0})['stored_count']+=1
                 _webhook_logger.info(
                     'WhatsApp webhook item: field=%s classification=%s '
