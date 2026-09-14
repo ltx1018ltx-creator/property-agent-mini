@@ -271,8 +271,30 @@ class WebhookTests(unittest.TestCase):
         self.assertIn('on conflict (meta_message_id) do nothing',sql)
         self.assertIn('enable row level security',sql)
         self.assertIn('force row level security',sql)
-        self.assertIn('to service_role',sql)
         self.assertNotIn('team_listings',sql)
+
+    def test_database_migration_preserves_confirmed_permissions_and_reload_fixes(self):
+        sql=(Path(__file__).parents[1]/'supabase/migrations/202609140001_whatsapp_ingestion_phase1.sql').read_text()
+        self.assertIn("""(event->>'sender') || '|' ||
+    (event->>'recipient') || '|' ||
+    (event->>'event_type')""",sql)
+        self.assertIn(
+            'grant select, insert, update on public.listing_submissions to service_role;',sql)
+        self.assertIn(
+            'grant select, insert on public.listing_submission_messages to service_role;',sql)
+        self.assertIn(
+            'grant usage, select on sequence public.listing_submission_messages_id_seq to service_role;',sql)
+        self.assertIn(
+            'grant execute on function public.ingest_whatsapp_message(jsonb) to service_role;',sql)
+        self.assertIn(
+            'revoke all on public.listing_submissions from anon, authenticated;',sql)
+        self.assertIn(
+            'revoke all on public.listing_submission_messages from anon, authenticated;',sql)
+        self.assertIn(
+            'revoke all on sequence public.listing_submission_messages_id_seq from anon, authenticated;',sql)
+        self.assertIn(
+            'revoke all on function public.ingest_whatsapp_message(jsonb) from public, anon, authenticated;',sql)
+        self.assertIn("notify pgrst, 'reload schema';",sql)
 
     @staticmethod
     def message_payload(message):
