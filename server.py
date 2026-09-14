@@ -245,7 +245,7 @@ def ingest_whatsapp_image(message):
         path=claim['storage_path']
         req=Request(f'{SUPABASE_URL}/storage/v1/object/{WHATSAPP_MEDIA_BUCKET}/{quote(path,safe="/")}',
                     data=content,method='POST',headers={'apikey':SUPABASE_SERVICE_ROLE_KEY,
-                    'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','Content-Type':mime,'x-upsert':'false'})
+                    'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','Content-Type':mime,'x-upsert':'true'})
         with urlopen(req,timeout=WHATSAPP_MEDIA_TIMEOUT_SECONDS) as response:response.read()
         _service_rpc('finish_whatsapp_image',{'message_id':message.get('meta_message_id'),
                      'new_status':'stored','mime_type':mime,'size_bytes':len(content),'error_code':None})
