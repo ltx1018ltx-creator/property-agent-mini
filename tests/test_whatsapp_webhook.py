@@ -6,8 +6,10 @@ import logging
 import os
 import threading
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import server
 from http.server import ThreadingHTTPServer
@@ -116,6 +118,46 @@ class WebhookTests(unittest.TestCase):
         with patch.object(server,'urlopen') as urlopen:
             self.assertEqual(self.signed_post(payload)[0],200)
         urlopen.assert_not_called()
+
+    def test_supabase_rpc_request_uses_exact_url_headers_and_postgrest_shape(self):
+        message={'meta_message_id':'wamid.request','text':'private message','sender':'private phone'}
+        captured=[]
+        class Response:
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def read(self):return b'"submission-id"'
+        def receive(req,timeout):
+            captured.append((req,timeout))
+            return Response()
+        with patch.object(server,'SUPABASE_URL','https://example.supabase.co///'), \
+             patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','service-role-test'), \
+             patch.object(server,'urlopen',side_effect=receive):
+            server.store_whatsapp_message(message)
+        req,timeout=captured[0]
+        self.assertEqual(req.full_url,'https://example.supabase.co/rest/v1/rpc/ingest_whatsapp_message')
+        self.assertEqual(req.method,'POST')
+        self.assertEqual(timeout,20)
+        self.assertEqual(req.get_header('Apikey'),'service-role-test')
+        self.assertEqual(req.get_header('Authorization'),'Bearer service-role-test')
+        self.assertEqual(req.get_header('Content-type'),'application/json')
+        self.assertEqual(json.loads(req.data),{'event':message})
+
+    def test_supabase_http_error_logs_only_status_and_redacted_body(self):
+        sensitive=('service-role-secret','60123456789','private message','base64-media-data')
+        response=json.dumps({'message':' '.join(sensitive)}).encode()
+        error=HTTPError('https://example.supabase.co/rest/v1/rpc/ingest_whatsapp_message',404,
+                        'Not Found',{},BytesIO(response))
+        with patch.object(server,'SUPABASE_URL','https://example.supabase.co/'), \
+             patch.object(server,'SUPABASE_SERVICE_ROLE_KEY',sensitive[0]), \
+             patch.object(server,'urlopen',side_effect=error), \
+             self.assertLogs('whatsapp.webhook',logging.ERROR) as logs:
+            with self.assertRaises(HTTPError):
+                server.store_whatsapp_message({'text':sensitive[2],'sender':sensitive[1],
+                                               'media':sensitive[3]})
+        output=' '.join(logs.output)
+        self.assertIn('status=404',output)
+        self.assertIn('response_body=<redacted:',output)
+        for value in sensitive:self.assertNotIn(value,output)
 
     def test_real_style_echo_text_caption_and_multiple_images_are_allow_listed(self):
         payload={'object':'whatsapp_business_account','entry':[{'changes':[{
