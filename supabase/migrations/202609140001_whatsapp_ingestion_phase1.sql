@@ -38,6 +38,14 @@ revoke all on public.listing_submissions from anon, authenticated;
 revoke all on public.listing_submission_messages from anon, authenticated;
 revoke all on sequence public.listing_submission_messages_id_seq from anon, authenticated;
 
+-- Reset service_role privileges before granting only what the ingestion RPC needs.
+revoke all on public.listing_submissions from service_role;
+revoke all on public.listing_submission_messages from service_role;
+revoke all on sequence public.listing_submission_messages_id_seq from service_role;
+grant select, insert, update on public.listing_submissions to service_role;
+grant select, insert on public.listing_submission_messages to service_role;
+grant usage, select on sequence public.listing_submission_messages_id_seq to service_role;
+
 create or replace function public.ingest_whatsapp_message(event jsonb)
 returns uuid
 language plpgsql
@@ -58,7 +66,9 @@ begin
 
   event_time := to_timestamp((event->>'timestamp')::double precision);
   perform pg_advisory_xact_lock((hashtextextended(
-    (event->>'sender') || '|' || (event->>'recipient') || '|' || (event->>'event_type'), 0)));
+    (event->>'sender') || '|' ||
+    (event->>'recipient') || '|' ||
+    (event->>'event_type'), 0)));
 
   select m.listing_submission_id into submission_id
     from public.listing_submission_messages m
@@ -94,4 +104,8 @@ end;
 $$;
 
 revoke all on function public.ingest_whatsapp_message(jsonb) from public, anon, authenticated;
+revoke all on function public.ingest_whatsapp_message(jsonb) from service_role;
 grant execute on function public.ingest_whatsapp_message(jsonb) to service_role;
+
+-- Ask PostgREST to expose the newly created or replaced function immediately.
+notify pgrst, 'reload schema';
