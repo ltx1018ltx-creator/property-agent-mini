@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, hmac, json, logging, os, re, secrets, threading
+import hashlib, hmac, json, logging, os, secrets, threading
 from collections import OrderedDict
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -18,7 +18,6 @@ SUPABASE_SERVICE_ROLE_KEY=os.environ.get('SUPABASE_SECRET_KEY') or os.environ.ge
 SITE_URL=os.environ.get('SITE_URL','https://property-agent-mini.onrender.com').rstrip('/')
 WEBHOOK_MAX_BYTES=1_000_000
 WHATSAPP_INGESTION_RPC_PATH='/rest/v1/rpc/ingest_whatsapp_message'
-SUPABASE_ERROR_MESSAGE_MAX_CHARS=300
 _webhook_events=OrderedDict()
 _webhook_events_lock=threading.Lock()
 _webhook_logger=logging.getLogger('whatsapp.webhook')
@@ -29,28 +28,48 @@ def redact_identifier(value):
     key=os.environ.get('META_APP_SECRET','').encode()
     return 'hmac:'+hmac.new(key,str(value).encode(),hashlib.sha256).hexdigest()[:12]
 
-def webhook_metadata(payload):
-    """Yield the explicitly allow-listed metadata for WhatsApp message events."""
+def webhook_changes(payload):
+    """Return allow-listed messages and structural facts for each webhook change."""
+    parsed=[]
+    structures=[]
     for entry in payload.get('entry',[]) if isinstance(payload,dict) else []:
         for change in entry.get('changes',[]) if isinstance(entry,dict) else []:
             value=change.get('value',{}) if isinstance(change,dict) else {}
-            if not isinstance(value,dict):continue
-            account=(value.get('metadata') or {}).get('phone_number_id')
-            # Coexistence echoes use the normal `messages` array under an
-            # `smb_message_echoes` change. Keep accepting `message_echoes` as
-            # well for compatibility with earlier Meta payload examples.
-            field=change.get('field')
-            messages=value.get('messages',[])
-            if field=='smb_message_echoes':groups=((messages,'business_app_echo'),)
-            else:groups=((messages,'inbound'),(value.get('message_echoes',[]),'business_app_echo'))
-            for messages,kind in groups:
-                for message in messages if isinstance(messages,list) else []:
-                    if not isinstance(message,dict):continue
+            supplied_field=change.get('field') if isinstance(change,dict) else None
+            field=supplied_field if supplied_field in ('messages','smb_message_echoes') else '<unsupported>'
+            if not isinstance(value,dict):
+                structures.append((field,'unsupported',0,'invalid_value'))
+                continue
+            metadata=value.get('metadata') or {}
+            account=metadata.get('phone_number_id') if isinstance(metadata,dict) else None
+            # Meta's real SMB echo delivery uses value.message_echoes. Retain
+            # value.messages as a compatibility fallback and for normal events.
+            if field=='smb_message_echoes':
+                groups=((value.get('message_echoes',[]),'business_app_echo'),
+                        (value.get('messages',[]),'business_app_echo'))
+            elif field=='messages':
+                groups=((value.get('messages',[]),'inbound'),
+                        (value.get('message_echoes',[]),'business_app_echo'))
+            else:groups=()
+            item_count=sum(len(items) for items,_ in groups if isinstance(items,list))
+            classification='smb_message_echoes' if field=='smb_message_echoes' else (
+                'messages' if field=='messages' else 'unsupported')
+            structures.append((field,classification,item_count,
+                               None if groups else 'unsupported_field'))
+            seen=set()
+            for items,kind in groups:
+                for message in items if isinstance(items,list) else []:
+                    if not isinstance(message,dict):
+                        parsed.append((field,classification,None,'invalid_item'))
+                        continue
+                    marker=id(message)
+                    if marker in seen:continue
+                    seen.add(marker)
                     echo=kind=='business_app_echo' or message.get('is_echo') is True
                     message_type=message.get('type')
                     content=message.get(message_type,{}) if isinstance(message_type,str) else {}
                     if not isinstance(content,dict):content={}
-                    yield {
+                    event={
                         'event_type':'smb_message_echoes' if echo else 'messages',
                         'meta_message_id':message.get('id'),
                         'message_type':message_type,
@@ -60,47 +79,18 @@ def webhook_metadata(payload):
                         'recipient':redact_identifier(message.get('to') or account),
                         'timestamp':message.get('timestamp'),
                     }
+                    parsed.append((field,event['event_type'],event,
+                                   None if event['meta_message_id'] else 'missing_message_id'))
+    if not structures:structures.append(('<none>','unsupported',0,'missing_changes'))
+    return parsed,structures
+
+def webhook_metadata(payload):
+    """Yield parsed messages for callers that only need ingestion metadata."""
+    for _,_,message,_ in webhook_changes(payload)[0]:
+        if message is not None:yield message
 
 def ingestion_enabled():
     return os.environ.get('WHATSAPP_INGESTION_ENABLED','false').strip().lower() in ('1','true','yes','on')
-
-def sanitized_supabase_error_message(value,sensitive_values=()):
-    """Return a single-line PostgREST message with credentials and user data removed."""
-    if not isinstance(value,str):return '<unavailable>'
-    message=value
-    known_secrets=(SUPABASE_SERVICE_ROLE_KEY,SUPABASE_KEY,os.environ.get('META_APP_SECRET',''),
-                   os.environ.get('WHATSAPP_VERIFY_TOKEN',''),*sensitive_values)
-    for secret in sorted({str(item) for item in known_secrets if item is not None and len(str(item))>=4},
-                         key=len,reverse=True):
-        message=re.sub(re.escape(secret),'<redacted>',message,flags=re.IGNORECASE)
-    message=re.sub(r'https?://[^\s/]+(?:/[^\s]*)?','<redacted-url>',message,flags=re.IGNORECASE)
-    message=re.sub(r'\bbearer\s+[^\s,;]+','Bearer <redacted>',message,flags=re.IGNORECASE)
-    message=re.sub(r'\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b','<redacted-jwt>',message)
-    message=re.sub(r'\bsb_(?:secret|service_role)_[A-Za-z0-9._-]+\b','<redacted-secret>',message,
-                   flags=re.IGNORECASE)
-    message=re.sub(
-        r'\b(api[_ -]?key|token|secret|password|authorization)\b\s*[:=]\s*(?:"[^"]*"|\'[^\']*\'|[^\s,;]+)',
-        r'\1=<redacted>',message,flags=re.IGNORECASE,
-    )
-    message=re.sub(r'(?<!\w)\+?(?:\d[\s().-]?){7,}\d(?!\w)','<redacted-phone>',message)
-    message=' '.join(message.split())
-    return message[:SUPABASE_ERROR_MESSAGE_MAX_CHARS] or '<unavailable>'
-
-def supabase_error_fields(body,sensitive_values=()):
-    """Extract only the allow-listed PostgREST fields from an HTTP response."""
-    try:payload=json.loads(body)
-    except (TypeError,UnicodeDecodeError,json.JSONDecodeError):payload={}
-    if not isinstance(payload,dict):payload={}
-    code=payload.get('code')
-    if not isinstance(code,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',code):code='<unavailable>'
-    return code,sanitized_supabase_error_message(payload.get('message'),sensitive_values)
-
-def string_values(value):
-    """Collect request strings so an upstream echo cannot expose payload data."""
-    if isinstance(value,str):return (value,)
-    if isinstance(value,dict):return tuple(item for child in value.values() for item in string_values(child))
-    if isinstance(value,(list,tuple)):return tuple(item for child in value for item in string_values(child))
-    return ()
 
 def store_whatsapp_message(message):
     """Persist one allow-listed event through the service-role-only RPC."""
@@ -115,13 +105,7 @@ def store_whatsapp_message(message):
     try:
         with urlopen(req,timeout=20) as res:res.read()
     except HTTPError as error:
-        try:response_body=error.read()
-        except Exception:response_body=b''
-        code,safe_message=supabase_error_fields(response_body,string_values(message))
-        _webhook_logger.error(
-            'Supabase WhatsApp ingestion failed: status=%s code=%s message=%s rpc_path=%s',
-            error.code,code,safe_message,WHATSAPP_INGESTION_RPC_PATH,
-        )
+        error.read()
         raise
 
 def is_duplicate_webhook(body):
@@ -173,18 +157,36 @@ class Handler(SimpleHTTPRequestHandler):
             except (UnicodeDecodeError,json.JSONDecodeError,ValueError):
                 return self.reply(400,{'error':'invalid payload'})
             duplicate=is_duplicate_webhook(body)
-            messages=list(webhook_metadata(payload))
-            if not duplicate:
-                for metadata in messages:
-                    safe_log={k:metadata.get(k) for k in ('event_type','meta_message_id','message_type','sender','recipient')}
-                    _webhook_logger.info('%s',json.dumps(safe_log,separators=(',',':')))
-            if ingestion_enabled():
-                try:
-                    for message in messages:
-                        if message.get('meta_message_id'):store_whatsapp_message(message)
+            parsed,structures=webhook_changes(payload)
+            for field,classification,item_count,skip_reason in structures:
+                _webhook_logger.info(
+                    'WhatsApp webhook change: field=%s classification=%s item_count=%s skip_reason=%s',
+                    field,classification,item_count,skip_reason or 'none',
+                )
+            enabled=ingestion_enabled()
+            ingestible=[]
+            for field,classification,message,skip_reason in parsed:
+                has_id=bool(message and message.get('meta_message_id'))
+                if message is not None and has_id and enabled:
+                    ingestible.append((field,classification,message))
+                    continue
+                reason=skip_reason or 'ingestion_disabled'
+                _webhook_logger.info(
+                    'WhatsApp webhook item: field=%s classification=%s item_count=1 has_id=%s skip_reason=%s',
+                    field,classification,str(has_id).lower(),reason,
+                )
+            for field,classification,message in ingestible:
+                try:store_whatsapp_message(message)
                 except Exception:
-                    _webhook_logger.exception('WhatsApp ingestion failed')
+                    _webhook_logger.error(
+                        'WhatsApp webhook item: field=%s classification=%s '
+                        'item_count=1 has_id=true skip_reason=ingestion_failed',field,classification,
+                    )
                     return self.reply(503,{'error':'ingestion unavailable'})
+                _webhook_logger.info(
+                    'WhatsApp webhook item: field=%s classification=%s '
+                    'item_count=1 has_id=true skip_reason=none',field,classification,
+                )
             return self.reply(200,{'ok':True,'duplicate':duplicate})
         if self.path=='/api/admin/invite':
             try:

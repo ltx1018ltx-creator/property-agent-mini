@@ -1,0 +1,24 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [{
+    "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+    "changes": [{
+      "field": "smb_message_echoes",
+      "value": {
+        "messaging_product": "whatsapp",
+        "metadata": {
+          "display_phone_number": "15550001111",
+          "phone_number_id": "BUSINESS_PHONE_NUMBER_ID"
+        },
+        "message_echoes": [{
+          "from": "15550001111",
+          "to": "15550001111",
+          "id": "wamid.ECHO_TEXT",
+          "timestamp": "1789344000",
+          "type": "text",
+          "text": {"body": "Three-bedroom condo near town"}
+        }]
+      }
+    }]
+  }]
+}
