@@ -323,8 +323,41 @@ class WebhookTests(unittest.TestCase):
         request=upload.call_args.args[0]
         self.assertIn('/storage/v1/object/whatsapp-ingestion/submission-uuid/random-uuid',request.full_url)
         self.assertEqual((request.data,request.get_header('Content-type'),request.get_header('X-upsert')),
-                         (b'\xff\xd8\xff\xe0','image/jpeg','false'))
+                         (b'\xff\xd8\xff\xe0','image/jpeg','true'))
         self.assertEqual(rpc_calls[-1][1]['new_status'],'stored')
+
+    def test_retry_after_upload_finish_interruption_upserts_the_same_object(self):
+        metadata={'url':'https://lookaside.fbsbx.com/private','mime_type':'image/jpeg','file_size':4}
+        media_responses=[]
+        for _ in range(2):
+            media_responses.extend([
+                MediaResponse(json.dumps(metadata).encode(),{'Content-Type':'application/json'}),
+                MediaResponse(b'\xff\xd8\xff\xe0',{'Content-Type':'image/jpeg','Content-Length':'4'}),
+            ])
+        rpc_calls=[]
+        finish_attempts=0
+        def rpc(name,payload):
+            nonlocal finish_attempts
+            rpc_calls.append((name,payload))
+            if name=='claim_whatsapp_image':
+                return [{'claimed':True,'storage_path':'submission-uuid/original-path'}]
+            finish_attempts+=1
+            if finish_attempts<=2:raise TimeoutError()
+        uploads=[]
+        def upload(req,timeout):
+            uploads.append(req)
+            return MediaResponse(b'{}',{})
+        with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':'true','WHATSAPP_ACCESS_TOKEN':'secret'}), \
+             patch.object(server,'_service_rpc',side_effect=rpc), \
+             patch.object(server,'open_meta_media',side_effect=media_responses), \
+             patch.object(server,'urlopen',side_effect=upload):
+            server.ingest_whatsapp_image(self.image_message())
+            server.ingest_whatsapp_image(self.image_message())
+        self.assertEqual(len(uploads),2)
+        self.assertEqual(uploads[0].full_url,uploads[1].full_url)
+        self.assertTrue(uploads[0].full_url.endswith('/submission-uuid/original-path'))
+        self.assertTrue(all(request.get_header('X-upsert')=='true' for request in uploads))
+        self.assertEqual([name for name,_ in rpc_calls].count('claim_whatsapp_image'),2)
 
     def test_invalid_mime_and_oversized_images_are_rejected(self):
         cases=[({'url':'https://lookaside.fbsbx.com/x','mime_type':'application/pdf','file_size':3},'invalid_mime_type'),
@@ -387,6 +420,14 @@ class WebhookTests(unittest.TestCase):
         self.assertIn("to anon using (bucket_id <> 'whatsapp-ingestion')",sql)
         self.assertIn("to authenticated using (bucket_id <> 'whatsapp-ingestion')",sql)
         self.assertNotIn('team_listings',sql)
+
+    def test_phase2_migration_reclaims_stale_claims_and_reuses_the_object_path(self):
+        sql=(Path(__file__).parents[1]/'supabase/migrations/202609140002_whatsapp_media_ingestion.sql').read_text()
+        self.assertIn("media_processing_at < now() - interval '15 minutes'",sql)
+        self.assertIn('media_storage_path = coalesce(',sql)
+        self.assertIn('media_storage_path,',sql)
+        self.assertIn("listing_submission_id::text || '/' || gen_random_uuid()::text",sql)
+        self.assertIn('media_processing_at = null',sql)
 
     @staticmethod
     def message_payload(message):

@@ -43,10 +43,15 @@ begin
   update public.listing_submission_messages
      set media_processing_at = now(),
          media_storage_bucket = 'whatsapp-ingestion',
-         media_storage_path = listing_submission_id::text || '/' || gen_random_uuid()::text
+         -- A retry must target the object chosen by the original claim. This
+         -- keeps an upload/finish interruption from leaving orphaned objects.
+         media_storage_path = coalesce(
+           media_storage_path,
+           listing_submission_id::text || '/' || gen_random_uuid()::text
+         )
    where meta_message_id = message_id and message_type = 'image'
      and meta_media_id is not null and media_status = 'pending'
-     and media_processing_at is null
+     and (media_processing_at is null or media_processing_at < now() - interval '15 minutes')
   returning listing_submission_id, media_storage_path into submission, object_path;
   if submission is null then return query select false, null::text;
   else return query select true, object_path; end if;
@@ -63,7 +68,8 @@ begin
      set media_status = new_status,
          media_mime_type = case when new_status = 'stored' then mime_type else null end,
          media_size_bytes = case when new_status = 'stored' then size_bytes else null end,
-         media_error_code = case when new_status = 'stored' then null else error_code end
+         media_error_code = case when new_status = 'stored' then null else error_code end,
+         media_processing_at = null
    where meta_message_id = message_id and media_status = 'pending' and media_processing_at is not null;
 end;
 $$;
