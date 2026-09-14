@@ -10,6 +10,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.request import Request
 
 import server
 from http.server import ThreadingHTTPServer
@@ -296,6 +297,97 @@ class WebhookTests(unittest.TestCase):
             'revoke all on function public.ingest_whatsapp_message(jsonb) from public, anon, authenticated;',sql)
         self.assertIn("notify pgrst, 'reload schema';",sql)
 
+    def test_media_feature_flag_requires_exact_true(self):
+        for value in ('', 'false', 'TRUE', '1', ' true'):
+            with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':value}):
+                self.assertFalse(server.media_ingestion_enabled())
+        with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':'true'}):
+            self.assertTrue(server.media_ingestion_enabled())
+
+    def test_successful_image_is_downloaded_and_stored_privately(self):
+        metadata={'url':'https://lookaside.fbsbx.com/private-signed-url','mime_type':'image/jpeg','file_size':4}
+        responses=[MediaResponse(json.dumps(metadata).encode(),{'Content-Type':'application/json'}),
+                   MediaResponse(b'\xff\xd8\xff\xe0',{'Content-Type':'image/jpeg','Content-Length':'4'})]
+        rpc_calls=[]
+        def rpc(name,payload):
+            rpc_calls.append((name,payload))
+            return [{'claimed':True,'storage_path':'submission-uuid/random-uuid'}] if name=='claim_whatsapp_image' else None
+        with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':'true','WHATSAPP_ACCESS_TOKEN':'access-secret'}), \
+             patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','role-secret'), \
+             patch.object(server,'open_meta_media',side_effect=responses) as media_open, \
+             patch.object(server,'_service_rpc',side_effect=rpc), \
+             patch.object(server,'urlopen',return_value=MediaResponse(b'{}',{})) as upload:
+            server.ingest_whatsapp_image(self.image_message())
+        self.assertEqual(media_open.call_count,2)
+        self.assertEqual(media_open.call_args_list[0].args[0].get_header('Authorization'),'Bearer access-secret')
+        request=upload.call_args.args[0]
+        self.assertIn('/storage/v1/object/whatsapp-ingestion/submission-uuid/random-uuid',request.full_url)
+        self.assertEqual((request.data,request.get_header('Content-type'),request.get_header('X-upsert')),
+                         (b'\xff\xd8\xff\xe0','image/jpeg','false'))
+        self.assertEqual(rpc_calls[-1][1]['new_status'],'stored')
+
+    def test_invalid_mime_and_oversized_images_are_rejected(self):
+        cases=[({'url':'https://lookaside.fbsbx.com/x','mime_type':'application/pdf','file_size':3},'invalid_mime_type'),
+               ({'url':'https://lookaside.fbsbx.com/x','mime_type':'image/png','file_size':server.WHATSAPP_MEDIA_MAX_BYTES+1},'invalid_size')]
+        for metadata,expected in cases:
+            calls=[]
+            def rpc(name,payload):
+                calls.append((name,payload));return [{'claimed':True,'storage_path':'s/r'}] if name=='claim_whatsapp_image' else None
+            with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':'true','WHATSAPP_ACCESS_TOKEN':'secret'}), \
+                 patch.object(server,'_service_rpc',side_effect=rpc), \
+                 patch.object(server,'open_meta_media',return_value=MediaResponse(json.dumps(metadata).encode(),{})), \
+                 patch.object(server,'urlopen') as upload:
+                server.ingest_whatsapp_image(self.image_message())
+            upload.assert_not_called()
+            self.assertEqual((calls[-1][1]['new_status'],calls[-1][1]['error_code']),('rejected',expected))
+
+    def test_media_timeout_is_failed_without_raising(self):
+        calls=[]
+        def rpc(name,payload):
+            calls.append((name,payload));return [{'claimed':True,'storage_path':'s/r'}] if name=='claim_whatsapp_image' else None
+        with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':'true','WHATSAPP_ACCESS_TOKEN':'secret'}), \
+             patch.object(server,'_service_rpc',side_effect=rpc), \
+             patch.object(server,'open_meta_media',side_effect=TimeoutError()):
+            server.ingest_whatsapp_image(self.image_message())
+        self.assertEqual((calls[-1][1]['new_status'],calls[-1][1]['error_code']),('failed','timeout'))
+
+    def test_redirect_to_non_meta_host_is_rejected(self):
+        handler=server.SafeMetaRedirectHandler()
+        with self.assertRaisesRegex(ValueError,'unsafe media redirect'):
+            handler.redirect_request(Request('https://lookaside.fbsbx.com/x'),None,302,'Found',{},
+                                     'https://attacker.example/collect')
+
+    def test_duplicate_media_delivery_does_not_download_or_upload(self):
+        with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':'true','WHATSAPP_ACCESS_TOKEN':'secret'}), \
+             patch.object(server,'_service_rpc',return_value=[{'claimed':False,'storage_path':None}]), \
+             patch.object(server,'open_meta_media') as download, patch.object(server,'urlopen') as upload:
+            server.ingest_whatsapp_image(self.image_message())
+        download.assert_not_called();upload.assert_not_called()
+
+    def test_media_failure_logging_contains_no_sensitive_values(self):
+        message=self.image_message()
+        with patch.dict(os.environ,{'WHATSAPP_MEDIA_INGESTION_ENABLED':'true','WHATSAPP_ACCESS_TOKEN':'TOKEN-PRIVATE'}), \
+             patch.object(server,'_service_rpc',return_value=[{'claimed':True,'storage_path':'submission/private-path'}]), \
+             patch.object(server,'open_meta_media',side_effect=RuntimeError(
+                 'TOKEN-PRIVATE MEDIA-PRIVATE +60123456789 private caption')), \
+             self.assertLogs('whatsapp.webhook',logging.ERROR) as logs:
+            server.ingest_whatsapp_image(message)
+        output=' '.join(logs.output)
+        self.assertIn('error_code=download_failed exception_class=RuntimeError',output)
+        for sensitive in ('TOKEN-PRIVATE','MEDIA-PRIVATE','+60123456789','private caption','private-path'):
+            self.assertNotIn(sensitive,output)
+
+    def test_phase2_migration_is_private_idempotent_and_does_not_touch_listings(self):
+        sql=(Path(__file__).parents[1]/'supabase/migrations/202609140002_whatsapp_media_ingestion.sql').read_text()
+        self.assertIn("values ('whatsapp-ingestion', 'whatsapp-ingestion', false)",sql)
+        self.assertIn('on conflict (id) do update set public = false',sql)
+        for column in ('media_storage_bucket','media_storage_path','media_mime_type','media_size_bytes','media_status','media_error_code'):
+            self.assertIn('add column if not exists '+column,sql)
+        self.assertIn('as restrictive',sql)
+        self.assertIn("to anon using (bucket_id <> 'whatsapp-ingestion')",sql)
+        self.assertIn("to authenticated using (bucket_id <> 'whatsapp-ingestion')",sql)
+        self.assertNotIn('team_listings',sql)
+
     @staticmethod
     def message_payload(message):
         return {'object':'whatsapp_business_account','entry':[{'changes':[{'field':'messages','value':{
@@ -306,6 +398,18 @@ class WebhookTests(unittest.TestCase):
     def fixture(name):
         path=Path(__file__).parent/'fixtures'/name
         return json.loads(path.read_text())
+
+    @staticmethod
+    def image_message():
+        return {'meta_message_id':'wamid.PRIVATE','meta_media_id':'MEDIA-PRIVATE',
+                'message_type':'image','text':'private caption','sender':'private phone'}
+
+
+class MediaResponse:
+    def __init__(self,body,headers):self.body=body;self.headers=headers
+    def __enter__(self):return self
+    def __exit__(self,*args):return False
+    def read(self,size=-1):return self.body if size<0 else self.body[:size]
 
 
 if __name__=='__main__':
