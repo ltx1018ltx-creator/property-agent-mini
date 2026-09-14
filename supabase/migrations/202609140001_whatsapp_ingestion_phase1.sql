@@ -57,8 +57,8 @@ begin
   end if;
 
   event_time := to_timestamp((event->>'timestamp')::double precision);
-  perform pg_advisory_xact_lock(hashtextextended(
-    event->>'sender' || '|' || event->>'recipient' || '|' || event->>'event_type', 0));
+  perform pg_advisory_xact_lock((hashtextextended(
+    (event->>'sender') || '|' || (event->>'recipient') || '|' || (event->>'event_type'), 0)));
 
   select m.listing_submission_id into submission_id
     from public.listing_submission_messages m
@@ -95,4 +95,3 @@ $$;
 
 revoke all on function public.ingest_whatsapp_message(jsonb) from public, anon, authenticated;
 grant execute on function public.ingest_whatsapp_message(jsonb) to service_role;
-

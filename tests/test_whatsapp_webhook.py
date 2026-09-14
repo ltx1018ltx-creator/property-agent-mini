@@ -91,9 +91,9 @@ class WebhookTests(unittest.TestCase):
         with self.assertLogs('whatsapp.webhook',logging.INFO) as logs:
             self.assertEqual(self.signed_post(payload)[0],200)
         output=' '.join(logs.output)
-        self.assertIn('wamid.abc',output)
-        self.assertIn('"event_type":"messages"',output)
-        self.assertIn('hmac:',output)
+        self.assertIn('field=messages classification=messages item_count=1',output)
+        self.assertIn('has_id=true skip_reason=ingestion_disabled',output)
+        self.assertNotIn('wamid.abc',output)
         self.assertNotIn('60123456789',output)
         self.assertNotIn('TOP SECRET',output)
         self.assertNotIn('15550001111',output)
@@ -101,13 +101,15 @@ class WebhookTests(unittest.TestCase):
     def test_business_app_message_echo_is_classified(self):
         payload={'object':'whatsapp_business_account','entry':[{'changes':[{
             'field':'smb_message_echoes','value':{'metadata':{'phone_number_id':'15550001111'},
-            'messages':[{'id':'wamid.echo','from':'15550001111','to':'60123456789',
+            'message_echoes':[{'id':'wamid.echo','from':'15550001111','to':'60123456789',
             'type':'image','image':{'id':'media.1','caption':'PRIVATE','data':'NEVER STORE'},
             'timestamp':'1789344000'}]}}]}]}
         with self.assertLogs('whatsapp.webhook',logging.INFO) as logs:
             self.assertEqual(self.signed_post(payload)[0],200)
         output=' '.join(logs.output)
-        self.assertIn('"event_type":"smb_message_echoes"',output)
+        self.assertIn('field=smb_message_echoes classification=smb_message_echoes item_count=1',output)
+        self.assertIn('has_id=true skip_reason=ingestion_disabled',output)
+        self.assertNotIn('wamid.echo',output)
         self.assertNotIn('PRIVATE',output)
         self.assertNotIn('NEVER STORE',output)
         self.assertNotIn('60123456789',output)
@@ -142,66 +144,21 @@ class WebhookTests(unittest.TestCase):
         self.assertEqual(req.get_header('Content-type'),'application/json')
         self.assertEqual(json.loads(req.data),{'event':message})
 
-    def test_supabase_http_error_logs_only_allow_listed_sanitized_fields(self):
-        sensitive=('service-role-secret','60123456789','private message','base64-media-data')
-        jwt='eyJhbGciOiJIUzI1NiJ9.c2Vuc2l0aXZl.c2lnbmF0dXJl'
-        response=json.dumps({
-            'code':'PGRST202',
-            'message':('Could not find function for 60123456789 private message base64-media-data; '
-                       f'Bearer bearer-value {jwt} secret=hidden-value '
-                       'https://example.supabase.co/rest/v1/rpc/ingest_whatsapp_message'),
-            'details':'detail-must-not-appear',
-            'hint':'hint-must-not-appear',
-            'request':{'apikey':sensitive[0]},
-        }).encode()
+    def test_supabase_http_error_does_not_log_response_or_request_values(self):
+        response=json.dumps({'code':'PGRST202','message':'private message 60123456789'}).encode()
         error=HTTPError('https://example.supabase.co/rest/v1/rpc/ingest_whatsapp_message',404,
                         'Not Found',{},BytesIO(response))
         with patch.object(server,'SUPABASE_URL','https://example.supabase.co/'), \
-             patch.object(server,'SUPABASE_SERVICE_ROLE_KEY',sensitive[0]), \
+             patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','service-role-secret'), \
              patch.object(server,'urlopen',side_effect=error), \
-             self.assertLogs('whatsapp.webhook',logging.ERROR) as logs:
+             patch.object(server._webhook_logger,'error') as error_log:
             with self.assertRaises(HTTPError):
-                server.store_whatsapp_message({'text':sensitive[2],'sender':sensitive[1],
-                                               'media':sensitive[3]})
-        output=' '.join(logs.output)
-        self.assertIn('status=404',output)
-        self.assertIn('code=PGRST202',output)
-        self.assertIn('message=Could not find function',output)
-        self.assertIn('rpc_path=/rest/v1/rpc/ingest_whatsapp_message',output)
-        self.assertNotIn('response_body',output)
-        for value in (*sensitive,jwt,'bearer-value','hidden-value','example.supabase.co',
-                      'detail-must-not-appear','hint-must-not-appear','apikey'):
-            self.assertNotIn(value,output)
+                server.store_whatsapp_message({'text':'private message','sender':'60123456789'})
+        error_log.assert_not_called()
 
-    def test_supabase_error_message_is_single_line_and_limited_to_300_characters(self):
-        response=json.dumps({'code':'PGRST404','message':'safe\nmessage '+('x'*500)}).encode()
-        code,message=server.supabase_error_fields(response)
-        self.assertEqual(code,'PGRST404')
-        self.assertNotIn('\n',message)
-        self.assertEqual(len(message),300)
-
-    def test_malformed_supabase_error_body_never_appears_in_log(self):
-        raw=b'not-json secret=raw-secret 60123456789'
-        error=HTTPError('https://private.example/rpc',500,'Error',{},BytesIO(raw))
-        with patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','service-role-test'), \
-             patch.object(server,'urlopen',side_effect=error), \
-             self.assertLogs('whatsapp.webhook',logging.ERROR) as logs:
-            with self.assertRaises(HTTPError):server.store_whatsapp_message({'text':'payload-secret'})
-        output=' '.join(logs.output)
-        self.assertIn('status=500 code=<unavailable> message=<unavailable>',output)
-        for value in ('not-json','raw-secret','60123456789','private.example','payload-secret'):
-            self.assertNotIn(value,output)
-
-    def test_real_style_echo_text_caption_and_multiple_images_are_allow_listed(self):
-        payload={'object':'whatsapp_business_account','entry':[{'changes':[{
-            'field':'smb_message_echoes','value':{'metadata':{'phone_number_id':'15550001111'},'messages':[
-                {'id':'wamid.text','from':'15550001111','to':'60123','timestamp':'1789344000',
-                 'type':'text','text':{'body':'Three-bedroom condo'}},
-                {'id':'wamid.image1','from':'15550001111','to':'60123','timestamp':'1789344001',
-                 'type':'image','image':{'id':'media.one','caption':'Living room','sha256':'secret'}},
-                {'id':'wamid.image2','from':'15550001111','to':'60123','timestamp':'1789344002',
-                 'type':'image','image':{'id':'media.two'}},
-            ]}}]}]}
+    def test_real_smb_echo_fixtures_each_call_rpc_and_allow_list_content(self):
+        text_payload=self.fixture('smb_message_echoes_text.json')
+        image_payload=self.fixture('smb_message_echoes_images.json')
         captured=[]
         class Response:
             def __enter__(self):return self
@@ -215,22 +172,49 @@ class WebhookTests(unittest.TestCase):
         with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true'}), \
              patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','service-role-test'), \
              patch.object(server,'urlopen',side_effect=receive):
-            self.assertEqual(self.signed_post(payload)[0],200)
-        self.assertEqual([e['meta_message_id'] for e in captured],['wamid.text','wamid.image1','wamid.image2'])
-        self.assertEqual(captured[0]['text'],'Three-bedroom condo')
-        self.assertEqual((captured[1]['text'],captured[1]['meta_media_id']),('Living room','media.one'))
-        self.assertEqual(captured[2]['meta_media_id'],'media.two')
+            self.assertEqual(self.signed_post(text_payload)[0],200)
+            self.assertEqual(self.signed_post(image_payload)[0],200)
+        self.assertEqual([e['meta_message_id'] for e in captured],
+                         ['wamid.ECHO_TEXT','wamid.ECHO_IMAGE_ONE','wamid.ECHO_IMAGE_TWO'])
+        self.assertEqual(captured[0]['text'],'Three-bedroom condo near town')
+        self.assertEqual((captured[1]['text'],captured[1]['meta_media_id']),('Living room','MEDIA_ID_ONE'))
+        self.assertEqual(captured[2]['meta_media_id'],'MEDIA_ID_TWO')
+        self.assertTrue(all(e['event_type']=='smb_message_echoes' for e in captured))
+        self.assertTrue(all(e['timestamp'] for e in captured))
+        self.assertTrue(all(e['sender'] and e['recipient'] for e in captured))
         serialized=json.dumps(captured)
         self.assertNotIn('sha256',serialized)
         self.assertNotIn('secret',serialized)
         self.assertNotIn('15550001111',serialized)
         self.assertNotIn('60123',serialized)
 
+    def test_multi_item_echo_logs_structure_without_any_payload_values(self):
+        payload=self.fixture('smb_message_echoes_images.json')
+        with self.assertLogs('whatsapp.webhook',logging.INFO) as logs:
+            self.assertEqual(self.signed_post(payload)[0],200)
+        output=' '.join(logs.output)
+        self.assertIn('field=smb_message_echoes classification=smb_message_echoes item_count=2',output)
+        self.assertEqual(output.count('has_id=true'),2)
+        for value in ('wamid.ECHO_IMAGE_ONE','wamid.ECHO_IMAGE_TWO','Living room',
+                      'MEDIA_ID_ONE','MEDIA_ID_TWO','15550001111','BUSINESS_PHONE_NUMBER_ID'):
+            self.assertNotIn(value,output)
+
+    def test_missing_echo_id_is_logged_structurally_and_not_ingested(self):
+        payload=self.fixture('smb_message_echoes_text.json')
+        del payload['entry'][0]['changes'][0]['value']['message_echoes'][0]['id']
+        with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true'}), \
+             patch.object(server,'urlopen') as urlopen, \
+             self.assertLogs('whatsapp.webhook',logging.INFO) as logs:
+            self.assertEqual(self.signed_post(payload)[0],200)
+        urlopen.assert_not_called()
+        self.assertIn('has_id=false skip_reason=missing_message_id',' '.join(logs.output))
+
     def test_database_migration_deduplicates_and_batches_for_60_seconds(self):
         sql=(Path(__file__).parents[1]/'supabase/migrations/202609140001_whatsapp_ingestion_phase1.sql').read_text()
         self.assertIn('meta_message_id text not null unique',sql)
         self.assertIn("interval '60 seconds'",sql)
         self.assertIn('pg_advisory_xact_lock',sql)
+        self.assertIn('pg_advisory_xact_lock((hashtextextended(',sql)
         self.assertIn('on conflict (meta_message_id) do nothing',sql)
         self.assertIn('enable row level security',sql)
         self.assertIn('force row level security',sql)
@@ -242,6 +226,11 @@ class WebhookTests(unittest.TestCase):
         return {'object':'whatsapp_business_account','entry':[{'changes':[{'field':'messages','value':{
             'metadata':{'phone_number_id':'15550001111'},'messages':[message]
         }}]}]}
+
+    @staticmethod
+    def fixture(name):
+        path=Path(__file__).parent/'fixtures'/name
+        return json.loads(path.read_text())
 
 
 if __name__=='__main__':
