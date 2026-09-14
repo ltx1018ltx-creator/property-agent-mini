@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, hmac, json, logging, os, secrets, threading
+import hashlib, hmac, json, logging, os, re, secrets, threading
 from collections import OrderedDict
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -17,6 +17,8 @@ SUPABASE_KEY=os.environ.get('SUPABASE_ANON_KEY','sb_publishable_XN56JH2JPCjbLQYR
 SUPABASE_SERVICE_ROLE_KEY=os.environ.get('SUPABASE_SECRET_KEY') or os.environ.get('SUPABASE_SERVICE_ROLE_KEY','')
 SITE_URL=os.environ.get('SITE_URL','https://property-agent-mini.onrender.com').rstrip('/')
 WEBHOOK_MAX_BYTES=1_000_000
+WHATSAPP_INGESTION_RPC_PATH='/rest/v1/rpc/ingest_whatsapp_message'
+SUPABASE_ERROR_MESSAGE_MAX_CHARS=300
 _webhook_events=OrderedDict()
 _webhook_events_lock=threading.Lock()
 _webhook_logger=logging.getLogger('whatsapp.webhook')
@@ -62,16 +64,49 @@ def webhook_metadata(payload):
 def ingestion_enabled():
     return os.environ.get('WHATSAPP_INGESTION_ENABLED','false').strip().lower() in ('1','true','yes','on')
 
-def redacted_http_body(body):
-    """Describe an upstream body without exposing any of its contents."""
-    if not body:return '<empty>'
-    return f'<redacted: {len(body)} bytes, sha256={hashlib.sha256(body).hexdigest()[:12]}>'
+def sanitized_supabase_error_message(value,sensitive_values=()):
+    """Return a single-line PostgREST message with credentials and user data removed."""
+    if not isinstance(value,str):return '<unavailable>'
+    message=value
+    known_secrets=(SUPABASE_SERVICE_ROLE_KEY,SUPABASE_KEY,os.environ.get('META_APP_SECRET',''),
+                   os.environ.get('WHATSAPP_VERIFY_TOKEN',''),*sensitive_values)
+    for secret in sorted({str(item) for item in known_secrets if item is not None and len(str(item))>=4},
+                         key=len,reverse=True):
+        message=re.sub(re.escape(secret),'<redacted>',message,flags=re.IGNORECASE)
+    message=re.sub(r'https?://[^\s/]+(?:/[^\s]*)?','<redacted-url>',message,flags=re.IGNORECASE)
+    message=re.sub(r'\bbearer\s+[^\s,;]+','Bearer <redacted>',message,flags=re.IGNORECASE)
+    message=re.sub(r'\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b','<redacted-jwt>',message)
+    message=re.sub(r'\bsb_(?:secret|service_role)_[A-Za-z0-9._-]+\b','<redacted-secret>',message,
+                   flags=re.IGNORECASE)
+    message=re.sub(
+        r'\b(api[_ -]?key|token|secret|password|authorization)\b\s*[:=]\s*(?:"[^"]*"|\'[^\']*\'|[^\s,;]+)',
+        r'\1=<redacted>',message,flags=re.IGNORECASE,
+    )
+    message=re.sub(r'(?<!\w)\+?(?:\d[\s().-]?){7,}\d(?!\w)','<redacted-phone>',message)
+    message=' '.join(message.split())
+    return message[:SUPABASE_ERROR_MESSAGE_MAX_CHARS] or '<unavailable>'
+
+def supabase_error_fields(body,sensitive_values=()):
+    """Extract only the allow-listed PostgREST fields from an HTTP response."""
+    try:payload=json.loads(body)
+    except (TypeError,UnicodeDecodeError,json.JSONDecodeError):payload={}
+    if not isinstance(payload,dict):payload={}
+    code=payload.get('code')
+    if not isinstance(code,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',code):code='<unavailable>'
+    return code,sanitized_supabase_error_message(payload.get('message'),sensitive_values)
+
+def string_values(value):
+    """Collect request strings so an upstream echo cannot expose payload data."""
+    if isinstance(value,str):return (value,)
+    if isinstance(value,dict):return tuple(item for child in value.values() for item in string_values(child))
+    if isinstance(value,(list,tuple)):return tuple(item for child in value for item in string_values(child))
+    return ()
 
 def store_whatsapp_message(message):
     """Persist one allow-listed event through the service-role-only RPC."""
     if not SUPABASE_SERVICE_ROLE_KEY:raise RuntimeError('service role is not configured')
     body=json.dumps({'event':message},separators=(',',':')).encode()
-    rpc_url=f'{SUPABASE_URL.rstrip("/")}/rest/v1/rpc/ingest_whatsapp_message'
+    rpc_url=f'{SUPABASE_URL.rstrip("/")}{WHATSAPP_INGESTION_RPC_PATH}'
     req=Request(rpc_url,data=body,method='POST',headers={
         'apikey':SUPABASE_SERVICE_ROLE_KEY,
         'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}',
@@ -82,9 +117,10 @@ def store_whatsapp_message(message):
     except HTTPError as error:
         try:response_body=error.read()
         except Exception:response_body=b''
+        code,safe_message=supabase_error_fields(response_body,string_values(message))
         _webhook_logger.error(
-            'Supabase WhatsApp ingestion failed: status=%s response_body=%s',
-            error.code,redacted_http_body(response_body),
+            'Supabase WhatsApp ingestion failed: status=%s code=%s message=%s rpc_path=%s',
+            error.code,code,safe_message,WHATSAPP_INGESTION_RPC_PATH,
         )
         raise
 

@@ -142,9 +142,18 @@ class WebhookTests(unittest.TestCase):
         self.assertEqual(req.get_header('Content-type'),'application/json')
         self.assertEqual(json.loads(req.data),{'event':message})
 
-    def test_supabase_http_error_logs_only_status_and_redacted_body(self):
+    def test_supabase_http_error_logs_only_allow_listed_sanitized_fields(self):
         sensitive=('service-role-secret','60123456789','private message','base64-media-data')
-        response=json.dumps({'message':' '.join(sensitive)}).encode()
+        jwt='eyJhbGciOiJIUzI1NiJ9.c2Vuc2l0aXZl.c2lnbmF0dXJl'
+        response=json.dumps({
+            'code':'PGRST202',
+            'message':('Could not find function for 60123456789 private message base64-media-data; '
+                       f'Bearer bearer-value {jwt} secret=hidden-value '
+                       'https://example.supabase.co/rest/v1/rpc/ingest_whatsapp_message'),
+            'details':'detail-must-not-appear',
+            'hint':'hint-must-not-appear',
+            'request':{'apikey':sensitive[0]},
+        }).encode()
         error=HTTPError('https://example.supabase.co/rest/v1/rpc/ingest_whatsapp_message',404,
                         'Not Found',{},BytesIO(response))
         with patch.object(server,'SUPABASE_URL','https://example.supabase.co/'), \
@@ -156,8 +165,32 @@ class WebhookTests(unittest.TestCase):
                                                'media':sensitive[3]})
         output=' '.join(logs.output)
         self.assertIn('status=404',output)
-        self.assertIn('response_body=<redacted:',output)
-        for value in sensitive:self.assertNotIn(value,output)
+        self.assertIn('code=PGRST202',output)
+        self.assertIn('message=Could not find function',output)
+        self.assertIn('rpc_path=/rest/v1/rpc/ingest_whatsapp_message',output)
+        self.assertNotIn('response_body',output)
+        for value in (*sensitive,jwt,'bearer-value','hidden-value','example.supabase.co',
+                      'detail-must-not-appear','hint-must-not-appear','apikey'):
+            self.assertNotIn(value,output)
+
+    def test_supabase_error_message_is_single_line_and_limited_to_300_characters(self):
+        response=json.dumps({'code':'PGRST404','message':'safe\nmessage '+('x'*500)}).encode()
+        code,message=server.supabase_error_fields(response)
+        self.assertEqual(code,'PGRST404')
+        self.assertNotIn('\n',message)
+        self.assertEqual(len(message),300)
+
+    def test_malformed_supabase_error_body_never_appears_in_log(self):
+        raw=b'not-json secret=raw-secret 60123456789'
+        error=HTTPError('https://private.example/rpc',500,'Error',{},BytesIO(raw))
+        with patch.object(server,'SUPABASE_SERVICE_ROLE_KEY','service-role-test'), \
+             patch.object(server,'urlopen',side_effect=error), \
+             self.assertLogs('whatsapp.webhook',logging.ERROR) as logs:
+            with self.assertRaises(HTTPError):server.store_whatsapp_message({'text':'payload-secret'})
+        output=' '.join(logs.output)
+        self.assertIn('status=500 code=<unavailable> message=<unavailable>',output)
+        for value in ('not-json','raw-secret','60123456789','private.example','payload-secret'):
+            self.assertNotIn(value,output)
 
     def test_real_style_echo_text_caption_and_multiple_images_are_allow_listed(self):
         payload={'object':'whatsapp_business_account','entry':[{'changes':[{
