@@ -7,15 +7,15 @@ const filters=overrides=>Object.assign({search:'',deal:[],location:[],locationQu
 
 test('selects and deselects an option while exposing its selected value',()=>{
   const element=select('Freehold','Leasehold');
-  assert.equal(toggleOption(element,0),true);
+  assert.equal(toggleOption(element,'Freehold'),true);
   assert.deepEqual(selectedValues(element),['Freehold']);
-  assert.equal(toggleOption(element,0),false);
+  assert.equal(toggleOption(element,'Freehold'),false);
   assert.deepEqual(selectedValues(element),[]);
 });
 
 test('supports multiple selections and Any clears its filter group',()=>{
   const element=select('Ayer Keroh','Bachang','Klebang');
-  toggleOption(element,0);toggleOption(element,2);
+  toggleOption(element,'Ayer Keroh');toggleOption(element,'Klebang');
   assert.deepEqual(selectedValues(element),['Ayer Keroh','Klebang']);
   clearSelect(element);
   assert.deepEqual(selectedValues(element),[]);
