@@ -64,6 +64,74 @@ class DraftTests(unittest.TestCase):
              patch.object(server,'generate_openai_draft') as generate:
             self.assertEqual(self.request('POST',f'/api/admin/listing-submissions/{SID}/generate',{})[0],202)
         generate.assert_not_called()
+    def test_concurrent_clicks_only_one_calls_ai(self):
+        draft={'id':DID,'status':'pending'}
+        claim_count=0
+        claim_lock=threading.Lock()
+        generation_started=threading.Event()
+        second_claimed=threading.Event()
+        release_generation=threading.Event()
+        def db(path,method='GET',payload=None,**kwargs):
+            nonlocal claim_count
+            if 'claim_listing' in path:
+                with claim_lock:
+                    claim_count+=1
+                    claimed=claim_count == 1
+                    if claim_count == 2:second_claimed.set()
+                return {'claimed':claimed,'draft':draft}
+            if 'listing_submission_messages' in path:return [{'message_text':'Condo RM500000'}]
+            if method=='PATCH':return [{**draft,'status':'generated','structured_data':{}}]
+            return []
+        def generate(_source):
+            generation_started.set()
+            self.assertTrue(release_generation.wait(2))
+            return {'structuredData':{},'marketingCopy':'Condo'}
+        with patch.object(server,'require_admin',return_value=(True,200)), \
+             patch.dict(os.environ,{'AI_DRAFT_ENABLED':'true','OPENAI_MODEL':'gpt-test'}), \
+             patch.object(server,'_supabase_request',side_effect=db), \
+             patch.object(server,'generate_openai_draft',side_effect=generate) as generate_mock:
+            results=[]
+            first=threading.Thread(target=lambda:results.append(self.request(
+                'POST',f'/api/admin/listing-submissions/{SID}/generate',{})))
+            first.start();self.assertTrue(generation_started.wait(2))
+            second=threading.Thread(target=lambda:results.append(self.request(
+                'POST',f'/api/admin/listing-submissions/{SID}/generate',{})))
+            second.start();self.assertTrue(second_claimed.wait(2));release_generation.set()
+            first.join();second.join()
+        self.assertEqual(sorted(status for status,_ in results),[200,202])
+        self.assertEqual(claim_count,2)
+        generate_mock.assert_called_once()
+    def test_explicit_regenerate_is_forwarded_to_atomic_claim(self):
+        captured=[]
+        def db(path,method='GET',payload=None,**kwargs):
+            if 'claim_listing' in path:
+                captured.append(payload)
+                return {'claimed':False,'draft':{'status':'pending'}}
+            return []
+        with patch.object(server,'require_admin',return_value=(True,200)), \
+             patch.dict(os.environ,{'AI_DRAFT_ENABLED':'true'}), \
+             patch.object(server,'_supabase_request',side_effect=db), \
+             patch.object(server,'generate_openai_draft') as generate:
+            self.assertEqual(self.request('POST',f'/api/admin/listing-submissions/{SID}/generate',
+                                          {'regenerate':True})[0],202)
+        self.assertIs(captured[0]['regenerate'],True)
+        generate.assert_not_called()
+    def test_fresh_pending_draft_is_not_reclaimed(self):
+        sql=self._migration_sql()
+        self.assertIn("where regenerate and (",sql)
+        self.assertIn("updated_at < now() - interval '15 minutes'",sql)
+        self.assertNotIn("updated_at <= now() - interval '15 minutes'",sql)
+    def test_stale_pending_draft_can_be_reclaimed_and_refreshes_timestamp(self):
+        sql=self._migration_sql()
+        self.assertIn("status <> 'pending'\n      or public.listing_submission_drafts.updated_at <",sql)
+        self.assertIn('model_name=excluded.model_name, updated_at=now()',sql)
+    def test_normal_request_remains_idempotent_and_charge_safe(self):
+        sql=self._migration_sql()
+        self.assertIn('where regenerate and (',sql)
+        self.assertNotIn('where regenerate or',sql)
+    @staticmethod
+    def _migration_sql():
+        return (Path(server.__file__).parent/'supabase/migrations/202609160001_ai_submission_drafts.sql').read_text()
     def test_missing_fields_schema_allows_null(self):
         schema=server._draft_schema()['properties']['structuredData']
         self.assertIn('null',schema['properties']['location']['type'])
