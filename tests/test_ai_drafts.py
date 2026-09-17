@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -141,6 +142,36 @@ class DraftTests(unittest.TestCase):
         with patch.dict(os.environ,{'OPENAI_API_KEY':secret}),self.assertLogs('ai.drafts',logging.ERROR) as logs:
             result,_=self._generate(ai_error=RuntimeError(text))
         output=' '.join(logs.output);self.assertNotIn(secret,output);self.assertNotIn(text,output);self.assertEqual(result[0],502)
+    def test_openai_http_error_logs_only_sanitized_diagnostics(self):
+        secret='sk-super-secret';property_text='PRIVATE PROPERTY 60123456789'
+        response={'error':{'type':'invalid_request_error\nforged=1','code':'bad request',
+                           'message':f'Invalid input PRIVATE\nAuthorization: Bearer {secret} '+('x'*400)}}
+        http_error=HTTPError('https://api.openai.com/v1/responses',400,'Bad Request',{},
+                             BytesIO(json.dumps(response).encode()))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':secret,'OPENAI_MODEL':'gpt-test'}), \
+             patch.object(server,'urlopen',side_effect=http_error), \
+             self.assertLogs('ai.drafts',logging.ERROR) as logs:
+            result,_=self._generate(ai_error=server._openai_provider_error(http_error,property_text,secret))
+        output=' '.join(logs.output)
+        self.assertEqual(result,(502,{'error':'Draft generation failed','code':'provider_error'}))
+        self.assertIn('openai_http_status=400',output)
+        self.assertIn('openai_error_type=invalid_request_error_forged_1',output)
+        self.assertIn('openai_error_code=bad_request',output)
+        self.assertIn('openai_error_message=[redacted: provider message referenced request input]',output)
+        self.assertNotIn(secret,output);self.assertNotIn(property_text,output);self.assertNotIn('\nforged=1',output)
+        logged_message=output.split('openai_error_message=',1)[1]
+        self.assertLessEqual(len(logged_message),server.OPENAI_ERROR_MESSAGE_MAX_CHARS)
+        self.assertEqual(len(server._sanitize_openai_message('x'*400,property_text,secret)),300)
+    def test_generate_converts_openai_http_error_without_logging_raw_body(self):
+        raw={'error':{'type':'server_error','code':'upstream_failure','message':'Service temporarily unavailable'}}
+        error=HTTPError('https://api.openai.com/v1/responses',503,'Unavailable',{},BytesIO(json.dumps(raw).encode()))
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'sk-private','OPENAI_MODEL':'gpt-test'}), \
+             patch.object(server,'urlopen',side_effect=error):
+            with self.assertRaises(server.OpenAIProviderError) as raised:
+                server.generate_openai_draft('customer property data')
+        self.assertEqual((raised.exception.status,raised.exception.error_type,raised.exception.error_code),
+                         (503,'server_error','upstream_failure'))
+        self.assertEqual(raised.exception.message,'Service temporarily unavailable')
     def test_no_team_listings_writes(self):
         source=Path(server.__file__).read_text();migration=(Path(server.__file__).parent/'supabase/migrations/202609160001_ai_submission_drafts.sql').read_text()
         phase3=source[source.index("match=re.fullmatch(r'/api/admin/listing-submissions/"):source.index("if urlsplit(self.path).path=='/api/whatsapp/webhook'")]
