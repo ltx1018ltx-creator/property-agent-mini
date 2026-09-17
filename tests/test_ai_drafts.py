@@ -137,6 +137,47 @@ class DraftTests(unittest.TestCase):
         schema=server._draft_schema()['properties']['structuredData']
         self.assertIn('null',schema['properties']['location']['type'])
         self.assertEqual(set(server.AI_DRAFT_FIELDS),set(schema['properties']['missingFields']['items']['enum']))
+    @staticmethod
+    def _empty_generated_draft(**values):
+        structured={field:None for field in server.AI_DRAFT_FIELDS}
+        structured.update(values)
+        structured['missingFields']=[field for field in server.AI_DRAFT_FIELDS if structured[field] is None]
+        return {'structuredData':structured,'marketingCopy':''}
+    def test_phase3a_defaults_only_property_and_title_type(self):
+        result=server._normalize_draft(self._empty_generated_draft(),'For sale in Melaka, RM500,000')
+        data=result['structuredData']
+        self.assertEqual(data['propertyType'],'Terrace')
+        self.assertEqual(data['titleType'],'Non-Bumi')
+        self.assertIsNone(data['location'])
+        self.assertNotIn('propertyType',data['missingFields'])
+        self.assertNotIn('titleType',data['missingFields'])
+        self.assertIn('location',data['missingFields'])
+    def test_explicit_property_types_override_terrace_default(self):
+        cases={'Semi-D':'Semi-D','Bungalow':'Bungalow','Condominium':'Condominium',
+               'Apartment':'Apartment','Flat':'Flat','Shop Lot':'Shop Lot','Commercial':'Commercial',
+               'Industrial':'Industrial','Agriculture':'Agriculture','Land':'Land','Townhouse':'Townhouse'}
+        for source,expected in cases.items():
+            with self.subTest(source=source):
+                result=server._normalize_draft(self._empty_generated_draft(),source)
+                self.assertEqual(result['structuredData']['propertyType'],expected)
+    def test_explicit_title_restrictions_override_non_bumi_default(self):
+        for source,expected in (('Bumi Lot','Bumi Lot'),('Malay Reserved','Malay Reserved'),
+                                ('Strata Title','Strata')):
+            with self.subTest(source=source):
+                result=server._normalize_draft(self._empty_generated_draft(),source)
+                self.assertEqual(result['structuredData']['titleType'],expected)
+    def test_model_extracted_other_explicit_values_are_preserved(self):
+        result=server._normalize_draft(
+            self._empty_generated_draft(propertyType='Duplex',titleType='Consent Required'),
+            'Duplex, consent required')
+        self.assertEqual(result['structuredData']['propertyType'],'Duplex')
+        self.assertEqual(result['structuredData']['titleType'],'Consent Required')
+    def test_land_dimension_formats_are_converted_to_square_feet(self):
+        for source in ('Land size 22x70','22 x 70 sqft','土地 22x70'):
+            with self.subTest(source=source):
+                result=server._normalize_draft(self._empty_generated_draft(),source)
+                self.assertEqual(result['structuredData']['landSize'],1540)
+                self.assertNotIn('landSize',result['structuredData']['missingFields'])
     def test_safe_logging_omits_property_text_and_keys(self):
         secret='sk-private';text='PRIVATE PROPERTY 60123456789'
         with patch.dict(os.environ,{'OPENAI_API_KEY':secret}),self.assertLogs('ai.drafts',logging.ERROR) as logs:
