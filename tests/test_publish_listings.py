@@ -142,6 +142,17 @@ class PublishListingTests(unittest.TestCase):
         self.assertIn('published_listing_id',sql);self.assertIn("values ('listing-images','listing-images',true)",sql)
         phase2=(Path(server.__file__).parent/'supabase/migrations/202609140002_whatsapp_media_ingestion.sql').read_text()
         self.assertIn("values ('whatsapp-ingestion', 'whatsapp-ingestion', false)",phase2)
+    def test_service_role_team_listings_permissions_migration(self):
+        sql=(Path(server.__file__).parent/'supabase/migrations/202609170002_grant_team_listings_service_role.sql').read_text()
+        normalized=' '.join(sql.lower().split())
+        self.assertIn('grant select, insert on table public.team_listings to service_role;',normalized)
+        self.assertIn("notify pgrst, 'reload schema';",normalized)
+        self.assertNotIn(' to anon',normalized)
+        self.assertNotIn(' to authenticated',normalized)
+        for operation in ('update','delete','truncate'):
+            self.assertNotIn(f'grant {operation}',normalized)
+        for statement in ('insert into public.team_listings','update public.team_listings','delete from public.team_listings'):
+            self.assertNotIn(statement,normalized)
     def test_listing_images_are_public_read_and_browser_write_denied(self):
         sql=(Path(server.__file__).parent/'supabase/migrations/202609170001_publish_approved_listings.sql').read_text()
         self.assertIn("values ('listing-images','listing-images',true)",sql)
