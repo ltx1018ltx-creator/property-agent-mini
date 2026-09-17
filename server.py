@@ -581,6 +581,40 @@ class Handler(SimpleHTTPRequestHandler):
         body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
         parsed_path=urlsplit(self.path).path
+        if parsed_path=='/api/admin/listing-submissions/merge':
+            allowed,auth_status=require_admin(self.headers)
+            if not allowed:return self.reply(auth_status,{'error':'Admin access required' if auth_status==403 else 'Unauthorized'})
+            try:size=int(self.headers.get('Content-Length','0'))
+            except ValueError:return self.reply(400,{'error':'Invalid request'})
+            if size<0 or size>AI_DRAFT_MAX_BYTES:return self.reply(413,{'error':'Payload too large'})
+            try:
+                payload=json.loads(self.rfile.read(size) or b'{}')
+                if not isinstance(payload,dict) or set(payload)!= {'submission_ids'}:raise ValueError()
+                supplied=payload['submission_ids']
+                if not isinstance(supplied,list) or not 2<=len(supplied)<=100:raise ValueError()
+                submission_ids=[]
+                for value in supplied:
+                    normalized=_valid_uuid(value)
+                    if not normalized:raise ValueError()
+                    if normalized not in submission_ids:submission_ids.append(normalized)
+                if len(submission_ids)<2:raise ValueError()
+            except (UnicodeDecodeError,json.JSONDecodeError,ValueError):
+                return self.reply(400,{'error':'Select at least two valid submissions'})
+            try:
+                result=_supabase_request('/rest/v1/rpc/merge_listing_submissions','POST',{
+                    'target_submission_id':submission_ids[0],
+                    'source_submission_ids':submission_ids[1:],
+                })
+                _draft_logger.info('Submission merge completed: submission_count=%s',len(submission_ids))
+                return self.reply(200,result)
+            except HTTPError as error:
+                # The database transaction rejects ineligible/cross-conversation
+                # selections. Never echo its potentially identifying diagnostics.
+                status=409 if error.code in (400,404,409) else 503
+                return self.reply(status,{'error':'Submissions cannot be merged','code':'merge_rejected'})
+            except Exception as error:
+                _draft_logger.error('Submission merge failed: exception_class=%s',type(error).__name__)
+                return self.reply(503,{'error':'Merge unavailable','code':'merge_failed'})
         match=re.fullmatch(r'/api/admin/listing-submission-drafts/([^/]+)/publish',parsed_path)
         if match:
             allowed,auth_status=require_admin(self.headers)
