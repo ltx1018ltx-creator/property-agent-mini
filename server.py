@@ -26,6 +26,7 @@ WHATSAPP_MEDIA_MIME_TYPES=frozenset(('image/jpeg','image/png','image/webp'))
 AI_DRAFT_PROMPT_VERSION='phase3a-v1'
 AI_DRAFT_MAX_BYTES=64*1024
 AI_DRAFT_TIMEOUT_SECONDS=45
+OPENAI_ERROR_MESSAGE_MAX_CHARS=300
 AI_DRAFT_FIELDS=('location','propertyType','propertySubtype','tenure','leaseYears','leaseExpiry',
                  'lotType','deal','price','landSize','builtUp','bedrooms','bathrooms','carParks',
                  'furnishing','renovation','titleType','landTitle','bumiLot','facing')
@@ -33,6 +34,53 @@ _webhook_events=OrderedDict()
 _webhook_events_lock=threading.Lock()
 _webhook_logger=logging.getLogger('whatsapp.webhook')
 _draft_logger=logging.getLogger('ai.drafts')
+
+class OpenAIProviderError(Exception):
+    """An OpenAI HTTP failure containing only fields safe for operational logs."""
+    def __init__(self,status,error_type,error_code,message):
+        super().__init__('openai_provider_error')
+        self.status=status
+        self.error_type=error_type
+        self.error_code=error_code
+        self.message=message
+
+def _sanitize_openai_label(value):
+    """Keep provider type/code useful without allowing log injection or free text."""
+    if not isinstance(value,str) or not value:return 'unknown'
+    return re.sub(r'[^A-Za-z0-9_.-]','_',value)[:100] or 'unknown'
+
+def _sanitize_openai_message(value,source_text,api_key):
+    """Produce a single-line diagnostic while redacting request-derived secrets/data."""
+    if not isinstance(value,str) or not value:return 'unavailable'
+    message=re.sub(r'[\x00-\x1f\x7f]+',' ',value)
+    sensitive=[api_key,source_text]
+    # The provider could quote an individual message rather than the joined input.
+    sensitive.extend(source_text.splitlines() if isinstance(source_text,str) else ())
+    for item in sorted((item for item in sensitive if item),key=len,reverse=True):
+        message=message.replace(item,'[redacted]')
+    # Do not risk emitting a partial address, name, price, or other request data
+    # if a provider diagnostic quotes only part of its input.
+    source_terms=set(re.findall(r'\w{3,}',source_text.casefold())) if isinstance(source_text,str) else set()
+    if source_terms.intersection(re.findall(r'\w{3,}',message.casefold())):
+        message='[redacted: provider message referenced request input]'
+    message=re.sub(r'(?i)\bAuthorization\s*[:=]\s*(?:Bearer\s+)?\S+','Authorization=[redacted]',message)
+    message=re.sub(r'(?i)\bBearer\s+\S+','Bearer [redacted]',message)
+    message=re.sub(r'\bsk-[A-Za-z0-9_-]+','[redacted]',message)
+    return ' '.join(message.split())[:OPENAI_ERROR_MESSAGE_MAX_CHARS] or 'unavailable'
+
+def _openai_provider_error(error,source_text,api_key):
+    """Consume an HTTP error body and retain only explicitly sanitized diagnostics."""
+    error_type=error_code='unknown';message='unavailable'
+    try:
+        decoded=json.loads(error.read(64*1024))
+        details=decoded.get('error',{}) if isinstance(decoded,dict) else {}
+        if isinstance(details,dict):
+            error_type=_sanitize_openai_label(details.get('type'))
+            error_code=_sanitize_openai_label(details.get('code'))
+            message=_sanitize_openai_message(details.get('message'),source_text,api_key)
+    except Exception:
+        pass
+    return OpenAIProviderError(error.code,error_type,error_code,message)
 
 def ai_draft_enabled():
     """AI generation is deliberately opt-in."""
@@ -86,7 +134,10 @@ def generate_openai_draft(source_text):
              'text':{'format':{'type':'json_schema','name':'property_draft','strict':True,'schema':_draft_schema()}}}
     req=Request('https://api.openai.com/v1/responses',data=json.dumps(payload,separators=(',',':')).encode(),
                 method='POST',headers={'Authorization':f'Bearer {api_key}','Content-Type':'application/json'})
-    with urlopen(req,timeout=AI_DRAFT_TIMEOUT_SECONDS) as response:result=json.loads(response.read())
+    try:
+        with urlopen(req,timeout=AI_DRAFT_TIMEOUT_SECONDS) as response:result=json.loads(response.read())
+    except HTTPError as error:
+        raise _openai_provider_error(error,source_text,api_key) from None
     output_text=result.get('output_text')
     if not isinstance(output_text,str):
         for item in result.get('output',[]) if isinstance(result,dict) else []:
@@ -99,9 +150,10 @@ def generate_openai_draft(source_text):
 
 def _draft_error_code(error):
     if isinstance(error,(TimeoutError,socket.timeout)):return 'timeout'
-    if isinstance(error,HTTPError):
-        if error.code==429:return 'rate_limited'
-        if error.code in (408,504):return 'timeout'
+    if isinstance(error,(HTTPError,OpenAIProviderError)):
+        status=error.code if isinstance(error,HTTPError) else error.status
+        if status==429:return 'rate_limited'
+        if status in (408,504):return 'timeout'
         return 'provider_error'
     if isinstance(error,(json.JSONDecodeError,ValueError)):return 'malformed_response'
     if isinstance(error,RuntimeError) and str(error)=='configuration_missing':return 'configuration_missing'
@@ -415,7 +467,12 @@ class Handler(SimpleHTTPRequestHandler):
                     try:_supabase_request('/rest/v1/listing_submission_drafts?id=eq.'+quote(draft_id,safe=''),'PATCH',
                         {'status':'failed','error_code':code},headers={'Prefer':'return=minimal'})
                     except Exception:pass
-                _draft_logger.error('AI draft generation failed: error_code=%s exception_class=%s',code,type(error).__name__)
+                if isinstance(error,OpenAIProviderError):
+                    _draft_logger.error('AI draft generation failed: error_code=%s openai_http_status=%s '
+                        'openai_error_type=%s openai_error_code=%s openai_error_message=%s',code,error.status,
+                        error.error_type,error.error_code,error.message)
+                else:
+                    _draft_logger.error('AI draft generation failed: error_code=%s exception_class=%s',code,type(error).__name__)
                 status=429 if code=='rate_limited' else 504 if code=='timeout' else 502
                 return self.reply(status,{'error':'Draft generation failed','code':code})
         if urlsplit(self.path).path=='/api/whatsapp/webhook':
