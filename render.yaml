@@ -11,6 +11,12 @@ services:
         sync: false
       - key: SITE_URL
         value: https://property-agent-mini.onrender.com
+      - key: AI_DRAFT_ENABLED
+        value: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
   - type: web
     name: tong-xen-property
     runtime: static

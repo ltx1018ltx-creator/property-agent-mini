@@ -58,6 +58,54 @@ codes are persisted. A failed media request therefore does not remove or alter
 the already stored message. The feature does not call AI or write to
 `team_listings`.
 
+## AI-assisted submission drafts (Phase 3A)
+
+Phase 3A adds a private, admin-only review inbox. It never publishes a listing
+and never inserts or updates `team_listings`. An authenticated admin must click
+**Generate AI Draft** before any OpenAI request is made. Images remain private
+and are shown through five-minute signed URLs; image contents are not sent to
+OpenAI. Only stored WhatsApp property text is sent, without sender/recipient
+identifiers, phone numbers, Meta IDs, tokens, or Storage paths.
+
+Deployment:
+
+1. Keep `AI_DRAFT_ENABLED=false` while deploying.
+2. Run `supabase/migrations/202609160001_ai_submission_drafts.sql` in the
+   Supabase SQL Editor. It is idempotent, enables and forces RLS, denies browser
+   roles, and grants only required server-role table/function privileges.
+3. Set server-only `OPENAI_API_KEY` and `OPENAI_MODEL` environment variables.
+   Do not add either to browser JavaScript or log their values.
+4. Confirm `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`) is configured,
+   then set `AI_DRAFT_ENABLED=true` and redeploy.
+5. Sign in as a user listed in `admin_users`, open **Admin**, generate a draft,
+   edit it, and approve or reject it. There is intentionally no Publish action.
+
+The server uses the OpenAI Responses API with a strict JSON Schema. Duplicate
+clicks reuse the active `(listing_submission_id, prompt_version)` draft; an
+explicit confirmed regenerate starts a new attempt for that same record.
+Operational logs contain fixed status/error codes only, never prompts, property
+text, credentials, or identifiers.
+
+Run all tests with:
+
+```bash
+python3 -m unittest discover -v
+```
+
+### Phase 3A rollback
+
+First set `AI_DRAFT_ENABLED=false` and redeploy. After completing any required
+retention/export process, remove only Phase 3A data and functions (this is
+permanent and does not affect Phase 1/2 or `team_listings`):
+
+```sql
+begin;
+drop function if exists public.claim_listing_submission_draft(uuid,text,text,boolean);
+drop table if exists public.listing_submission_drafts;
+drop function if exists public.touch_listing_submission_draft_updated_at();
+commit;
+```
+
 ### Phase 2 rollback
 
 First set `WHATSAPP_MEDIA_INGESTION_ENABLED=false` and redeploy; this immediately
