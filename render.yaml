@@ -9,6 +9,8 @@ services:
     envVars:
       - key: SUPABASE_SECRET_KEY
         sync: false
+      - key: WHATSAPP_ALLOWED_CONVERSATION_KEY
+        sync: false
       - key: SITE_URL
         value: https://property-agent-mini.onrender.com
       - key: AI_DRAFT_ENABLED

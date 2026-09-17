@@ -122,6 +122,74 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(self.signed_post(payload)[0],200)
         urlopen.assert_not_called()
 
+    def test_conversation_allowlist_accepts_pair_in_both_directions_and_event_types(self):
+        sender,recipient='60123456789','15550001111'
+        allowed=self.conversation_key(sender,recipient)
+        inbound=self.message_payload({'id':'wamid.in','from':sender,'to':recipient,'type':'text',
+                                      'text':{'body':'hello'},'timestamp':'1789344000'})
+        echo={'object':'whatsapp_business_account','entry':[{'changes':[{
+            'field':'smb_message_echoes','value':{'metadata':{'phone_number_id':recipient},
+            'message_echoes':[{'id':'wamid.out','from':recipient,'to':sender,'type':'text',
+                               'text':{'body':'hello'},'timestamp':'1789344001'}]}}]}]}
+        stored=[]
+        with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true',
+                                    'WHATSAPP_ALLOWED_CONVERSATION_KEY':allowed}), \
+             patch.object(server,'store_whatsapp_message',side_effect=stored.append), \
+             patch.object(server,'ingest_whatsapp_image') as media:
+            self.assertEqual(self.signed_post(inbound)[0],200)
+            self.assertEqual(self.signed_post(echo)[0],200)
+        self.assertEqual([item['event_type'] for item in stored],['messages','smb_message_echoes'])
+        self.assertEqual(media.call_count,2)
+
+    def test_conversation_allowlist_rejects_other_pair_without_writes_or_media(self):
+        payload=self.message_payload({'id':'wamid.rejected','from':'60123456789','to':'15550001111',
+                                      'type':'image','image':{'id':'MEDIA-PRIVATE'},
+                                      'timestamp':'1789344000'})
+        allowed=self.conversation_key('different-owner','different-business')
+        with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true',
+                                    'WHATSAPP_ALLOWED_CONVERSATION_KEY':allowed}), \
+             patch.object(server,'store_whatsapp_message') as store, \
+             patch.object(server,'ingest_whatsapp_image') as media, \
+             self.assertLogs('whatsapp.webhook',logging.INFO) as logs:
+            self.assertEqual(self.signed_post(payload)[0],200)
+        store.assert_not_called();media.assert_not_called()
+        self.assertIn('WhatsApp webhook item skipped: reason=conversation_not_allowed',' '.join(logs.output))
+
+    def test_malformed_conversation_allowlist_fails_closed(self):
+        payload=self.message_payload({'id':'wamid.bad-config','from':'1','to':'2','type':'text',
+                                      'text':{'body':'hello'},'timestamp':'1789344000'})
+        for malformed in ('', 'A'*64, 'a'*63, 'g'*64, ' '+('a'*64)):
+            with self.subTest(malformed=malformed), \
+                 patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true',
+                                        'WHATSAPP_ALLOWED_CONVERSATION_KEY':malformed}), \
+                 patch.object(server,'store_whatsapp_message') as store, \
+                 patch.object(server,'ingest_whatsapp_image') as media:
+                self.assertEqual(self.signed_post(payload)[0],200)
+                store.assert_not_called();media.assert_not_called()
+
+    def test_absent_conversation_allowlist_preserves_ingestion(self):
+        payload=self.message_payload({'id':'wamid.compat','from':'1','to':'2','type':'text',
+                                      'text':{'body':'hello'},'timestamp':'1789344000'})
+        with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true'}), \
+             patch.object(server,'store_whatsapp_message') as store, \
+             patch.object(server,'ingest_whatsapp_image'):
+            os.environ.pop('WHATSAPP_ALLOWED_CONVERSATION_KEY',None)
+            self.assertEqual(self.signed_post(payload)[0],200)
+        store.assert_called_once()
+
+    def test_rejected_conversation_webhook_retries_never_write_or_download(self):
+        payload=self.message_payload({'id':'wamid.retry','from':'1','to':'2','type':'image',
+                                      'image':{'id':'MEDIA-PRIVATE'},'timestamp':'1789344000'})
+        with patch.dict(os.environ,{'WHATSAPP_INGESTION_ENABLED':'true',
+                                    'WHATSAPP_ALLOWED_CONVERSATION_KEY':'0'*64}), \
+             patch.object(server,'store_whatsapp_message') as store, \
+             patch.object(server,'ingest_whatsapp_image') as media, \
+             patch.object(server,'open_meta_media') as download:
+            first=json.loads(self.signed_post(payload)[1])
+            retry=json.loads(self.signed_post(payload)[1])
+        self.assertFalse(first['duplicate']);self.assertTrue(retry['duplicate'])
+        store.assert_not_called();media.assert_not_called();download.assert_not_called()
+
     def test_supabase_rpc_request_uses_exact_url_headers_and_postgrest_shape(self):
         message={'meta_message_id':'wamid.request','text':'private message','sender':'private phone'}
         captured=[]
@@ -439,6 +507,11 @@ class WebhookTests(unittest.TestCase):
     def fixture(name):
         path=Path(__file__).parent/'fixtures'/name
         return json.loads(path.read_text())
+
+    @staticmethod
+    def conversation_key(sender,recipient):
+        redacted=sorted((server.redact_identifier(sender),server.redact_identifier(recipient)))
+        return hashlib.sha256('|'.join(redacted).encode()).hexdigest()
 
     @staticmethod
     def image_message():

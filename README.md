@@ -23,6 +23,12 @@ Ingestion is off by default. To deploy it safely:
    their values in client code, logs, screenshots, or support messages.
 3. Set `WHATSAPP_INGESTION_ENABLED=true` on the server and redeploy. Leave it
    unset or set it to `false` to disable writes immediately.
+4. Optionally set the server-only `WHATSAPP_ALLOWED_CONVERSATION_KEY` to the
+   selected submission's 64-character lowercase hexadecimal `conversation_key`.
+   When configured, only that direction-independent conversation is ingested,
+   including both normal messages and `smb_message_echoes`. Keep the value out
+   of client code and logs. An absent value preserves the existing behavior; a
+   malformed value fails closed and prevents all WhatsApp ingestion.
 
 The Phase 1 handler stores text/captions and Meta media IDs only. It does not
 download media, invoke OpenAI, or create `team_listings` records.

@@ -372,6 +372,18 @@ def webhook_metadata(payload):
 def ingestion_enabled():
     return os.environ.get('WHATSAPP_INGESTION_ENABLED','false').strip().lower() in ('1','true','yes','on')
 
+def whatsapp_conversation_allowed(message):
+    """Fail closed against an optional database conversation-key allowlist."""
+    configured=os.environ.get('WHATSAPP_ALLOWED_CONVERSATION_KEY')
+    if configured is None:return True
+    if not re.fullmatch(r'[0-9a-f]{64}',configured):return False
+    sender=message.get('sender') if isinstance(message,dict) else None
+    recipient=message.get('recipient') if isinstance(message,dict) else None
+    if not isinstance(sender,str) or not isinstance(recipient,str):return False
+    first,second=sorted((sender,recipient))
+    actual=hashlib.sha256(f'{first}|{second}'.encode()).hexdigest()
+    return hmac.compare_digest(actual,configured)
+
 def media_ingestion_enabled():
     """Media ingestion is deliberately stricter than the Phase 1 flag."""
     return os.environ.get('WHATSAPP_MEDIA_INGESTION_ENABLED','')=='true'
@@ -749,6 +761,12 @@ class Handler(SimpleHTTPRequestHandler):
                 counts['item_count']+=1
                 has_id=bool(message and message.get('meta_message_id'))
                 if message is not None and has_id and enabled:
+                    if not whatsapp_conversation_allowed(message):
+                        counts['skipped_count']+=1
+                        _webhook_logger.info(
+                            'WhatsApp webhook item skipped: reason=conversation_not_allowed'
+                        )
+                        continue
                     ingestible.append((field,classification,message))
                     continue
                 reason=skip_reason or 'ingestion_disabled'
