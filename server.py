@@ -20,6 +20,7 @@ WEBHOOK_MAX_BYTES=1_000_000
 WHATSAPP_INGESTION_RPC_PATH='/rest/v1/rpc/ingest_whatsapp_message'
 SUPABASE_ERROR_MESSAGE_MAX_CHARS=300
 WHATSAPP_MEDIA_BUCKET='whatsapp-ingestion'
+LISTING_IMAGE_BUCKET='listing-images'
 WHATSAPP_MEDIA_MAX_BYTES=15*1024*1024
 WHATSAPP_MEDIA_TIMEOUT_SECONDS=10
 WHATSAPP_MEDIA_MIME_TYPES=frozenset(('image/jpeg','image/png','image/webp'))
@@ -30,6 +31,7 @@ OPENAI_ERROR_MESSAGE_MAX_CHARS=300
 AI_DRAFT_FIELDS=('location','propertyType','propertySubtype','tenure','leaseYears','leaseExpiry',
                  'lotType','deal','price','landSize','builtUp','bedrooms','bathrooms','carParks',
                  'furnishing','renovation','titleType','landTitle','bumiLot','facing')
+PUBLISH_NUMBER_FIELDS=frozenset(('leaseYears','leaseExpiry','price','builtUp','carParks'))
 _webhook_events=OrderedDict()
 _webhook_events_lock=threading.Lock()
 _webhook_logger=logging.getLogger('whatsapp.webhook')
@@ -109,6 +111,74 @@ def require_admin(headers):
         return (result is True,403 if result is not True else 200)
     except HTTPError as error:return False,401 if error.code==401 else 403
     except Exception:return False,503
+
+def _bearer_token(headers):
+    auth=headers.get('Authorization','')
+    return auth[7:].strip() if auth.lower().startswith('bearer ') else ''
+
+def _sanitize_public_listing_text(value):
+    """Normalize reviewed copy and reject identifiers/private Storage references."""
+    if not isinstance(value,str):raise ValueError('invalid_draft')
+    value=' '.join(value.replace('\x00','').split())
+    sensitive=(
+        r'(?<!\w)\+?(?:\d[\s().-]?){7,}\d(?!\w)',
+        r'(?i)whatsapp-ingestion',
+        r'(?i)/storage/v1/(?:object|render)/',
+        r'(?i)\b(?:wamid|phone_number_id|meta_media_id|media_storage_path)\b',
+        r'(?i)\b(?:sender|recipient)_(?:id|redacted)\b',
+        r'(?<![A-Fa-f0-9])[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89ABab][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}(?![A-Fa-f0-9])',
+    )
+    if any(re.search(pattern,value) for pattern in sensitive):raise ValueError('sensitive_listing_text')
+    return value
+
+def _listing_from_draft(structured,marketing_copy,photos):
+    """Map only the reviewed Phase 3 fields into the established listing JSON shape."""
+    if not isinstance(structured,dict) or not isinstance(marketing_copy,str):raise ValueError('invalid_draft')
+    listing={}
+    for field in AI_DRAFT_FIELDS:
+        value=structured.get(field)
+        if value is None:continue
+        if field in PUBLISH_NUMBER_FIELDS:
+            if isinstance(value,bool) or not isinstance(value,(int,float)) or value < 0:raise ValueError('invalid_draft')
+        elif not isinstance(value,str) or len(value)>500:raise ValueError('invalid_draft')
+        else:value=_sanitize_public_listing_text(value)
+        listing[field]=value
+    if len(marketing_copy)>20_000:raise ValueError('invalid_draft')
+    marketing_copy=_sanitize_public_listing_text(marketing_copy)
+    # rawText is retained for compatibility with manual listings, but is built
+    # exclusively from the reviewed allow-list above. Ingestion messages and
+    # their identifiers/paths are never inputs to this function.
+    summary=[f'{field}: {listing[field]}' for field in AI_DRAFT_FIELDS if field in listing]
+    if marketing_copy:summary.append(marketing_copy)
+    listing['rawText']='\n'.join(summary)
+    listing['title']=' '.join(str(listing.get(k,'')) for k in ('propertySubtype','propertyType')).strip()
+    listing['photos']=photos
+    listing['shareId']=''
+    return listing
+
+def _copy_submission_images(submission_id,draft_id):
+    """Copy stored private media to deterministic public objects; originals are untouched."""
+    rows=_supabase_request('/rest/v1/listing_submission_messages?listing_submission_id=eq.'+
+        quote(submission_id,safe='')+'&message_type=eq.image&media_status=eq.stored&select=id,media_storage_bucket,media_storage_path,media_mime_type&order=id.asc')
+    urls=[]
+    for row in rows:
+        mime=row.get('media_mime_type')
+        if row.get('media_storage_bucket')!=WHATSAPP_MEDIA_BUCKET or mime not in WHATSAPP_MEDIA_MIME_TYPES:
+            raise ValueError('invalid_image')
+        private_path=row.get('media_storage_path')
+        if not isinstance(private_path,str) or not private_path:raise ValueError('invalid_image')
+        req=Request(f'{SUPABASE_URL}/storage/v1/object/{WHATSAPP_MEDIA_BUCKET}/{quote(private_path,safe="/")}',
+                    headers={'apikey':SUPABASE_SERVICE_ROLE_KEY,'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}'})
+        with urlopen(req,timeout=WHATSAPP_MEDIA_TIMEOUT_SECONDS) as response:content=response.read(WHATSAPP_MEDIA_MAX_BYTES+1)
+        if len(content)>WHATSAPP_MEDIA_MAX_BYTES or not _matches_image_signature(content,mime):raise ValueError('invalid_image')
+        extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[mime]
+        public_path=f'{draft_id}/{row["id"]}.{extension}'
+        upload=Request(f'{SUPABASE_URL}/storage/v1/object/{LISTING_IMAGE_BUCKET}/{quote(public_path,safe="/")}',
+            data=content,method='POST',headers={'apikey':SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','Content-Type':mime,'x-upsert':'true'})
+        with urlopen(upload,timeout=WHATSAPP_MEDIA_TIMEOUT_SECONDS) as response:response.read()
+        urls.append(f'{SUPABASE_URL}/storage/v1/object/public/{LISTING_IMAGE_BUCKET}/{quote(public_path,safe="/")}')
+    return urls
 
 def _draft_schema():
     nullable={'type':['string','null']}
@@ -498,6 +568,38 @@ class Handler(SimpleHTTPRequestHandler):
         body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
         parsed_path=urlsplit(self.path).path
+        match=re.fullmatch(r'/api/admin/listing-submission-drafts/([^/]+)/publish',parsed_path)
+        if match:
+            allowed,auth_status=require_admin(self.headers)
+            if not allowed:return self.reply(auth_status,{'error':'Admin access required' if auth_status==403 else 'Unauthorized'})
+            draft_id=_valid_uuid(match.group(1))
+            if not draft_id:return self.reply(400,{'error':'Invalid draft ID'})
+            try:
+                rows=_supabase_request('/rest/v1/listing_submission_drafts?id=eq.'+quote(draft_id,safe='')+
+                    '&select=id,listing_submission_id,structured_data,marketing_copy,status,published_listing_id,published_at')
+                if not rows:return self.reply(404,{'error':'Draft not found'})
+                draft=rows[0]
+                if draft.get('published_listing_id'):
+                    return self.reply(200,{'listing_id':draft['published_listing_id'],
+                        'published_at':draft.get('published_at'),'duplicate':True})
+                if draft.get('status')!='approved':return self.reply(409,{'error':'Draft must be approved before publishing','code':'draft_not_approved'})
+                user=_supabase_request('/auth/v1/user',token=_bearer_token(self.headers))
+                owner=_valid_uuid(user.get('id') if isinstance(user,dict) else None)
+                if not owner:return self.reply(401,{'error':'Unauthorized'})
+                photos=_copy_submission_images(draft['listing_submission_id'],draft_id)
+                listing=_listing_from_draft(draft.get('structured_data'),draft.get('marketing_copy'),photos)
+                result=_supabase_request('/rest/v1/rpc/publish_approved_listing','POST',{
+                    'draft_id':draft_id,'publishing_owner':owner,'clean_listing':listing})
+                _draft_logger.info('Approved listing publish completed: duplicate=%s image_count=%s',
+                                   str(bool(result.get('duplicate'))).lower(),len(photos))
+                return self.reply(200,{'listing_id':result.get('listing_id'),
+                    'published_at':result.get('published_at'),'duplicate':bool(result.get('duplicate'))})
+            except ValueError:
+                _draft_logger.error('Approved listing publish failed: error_code=validation_failed')
+                return self.reply(422,{'error':'Approved draft contains invalid listing data','code':'validation_failed'})
+            except Exception as error:
+                _draft_logger.error('Approved listing publish failed: error_code=publish_failed exception_class=%s',type(error).__name__)
+                return self.reply(503,{'error':'Publishing failed; the approved draft can be retried','code':'publish_failed'})
         match=re.fullmatch(r'/api/admin/listing-submissions/([^/]+)/generate',parsed_path)
         if match:
             allowed,auth_status=require_admin(self.headers)
@@ -713,7 +815,7 @@ class Handler(SimpleHTTPRequestHandler):
                     messages=_supabase_request('/rest/v1/listing_submission_messages?listing_submission_id='+in_filter+
                         '&select=id,listing_submission_id,message_type,message_text,message_timestamp,media_status,media_storage_bucket,media_storage_path,media_mime_type&order=message_timestamp.asc')
                     drafts=_supabase_request('/rest/v1/listing_submission_drafts?listing_submission_id='+in_filter+
-                        '&select=id,listing_submission_id,structured_data,marketing_copy,status,model_name,prompt_version,error_code,created_at,updated_at')
+                        '&select=id,listing_submission_id,structured_data,marketing_copy,status,model_name,prompt_version,error_code,created_at,updated_at,published_listing_id,published_at')
                 by_submission={row['id']:{**row,'messages':[],'draft':None} for row in submissions}
                 for draft in drafts:by_submission.get(draft['listing_submission_id'],{})['draft']=draft
                 for message in messages:
