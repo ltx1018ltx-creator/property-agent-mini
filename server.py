@@ -116,6 +116,21 @@ def _bearer_token(headers):
     auth=headers.get('Authorization','')
     return auth[7:].strip() if auth.lower().startswith('bearer ') else ''
 
+def _sanitize_public_listing_text(value):
+    """Normalize reviewed copy and reject identifiers/private Storage references."""
+    if not isinstance(value,str):raise ValueError('invalid_draft')
+    value=' '.join(value.replace('\x00','').split())
+    sensitive=(
+        r'(?<!\w)\+?(?:\d[\s().-]?){7,}\d(?!\w)',
+        r'(?i)whatsapp-ingestion',
+        r'(?i)/storage/v1/(?:object|render)/',
+        r'(?i)\b(?:wamid|phone_number_id|meta_media_id|media_storage_path)\b',
+        r'(?i)\b(?:sender|recipient)_(?:id|redacted)\b',
+        r'(?<![A-Fa-f0-9])[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89ABab][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}(?![A-Fa-f0-9])',
+    )
+    if any(re.search(pattern,value) for pattern in sensitive):raise ValueError('sensitive_listing_text')
+    return value
+
 def _listing_from_draft(structured,marketing_copy,photos):
     """Map only the reviewed Phase 3 fields into the established listing JSON shape."""
     if not isinstance(structured,dict) or not isinstance(marketing_copy,str):raise ValueError('invalid_draft')
@@ -126,9 +141,16 @@ def _listing_from_draft(structured,marketing_copy,photos):
         if field in PUBLISH_NUMBER_FIELDS:
             if isinstance(value,bool) or not isinstance(value,(int,float)) or value < 0:raise ValueError('invalid_draft')
         elif not isinstance(value,str) or len(value)>500:raise ValueError('invalid_draft')
+        else:value=_sanitize_public_listing_text(value)
         listing[field]=value
     if len(marketing_copy)>20_000:raise ValueError('invalid_draft')
-    listing['rawText']=marketing_copy
+    marketing_copy=_sanitize_public_listing_text(marketing_copy)
+    # rawText is retained for compatibility with manual listings, but is built
+    # exclusively from the reviewed allow-list above. Ingestion messages and
+    # their identifiers/paths are never inputs to this function.
+    summary=[f'{field}: {listing[field]}' for field in AI_DRAFT_FIELDS if field in listing]
+    if marketing_copy:summary.append(marketing_copy)
+    listing['rawText']='\n'.join(summary)
     listing['title']=' '.join(str(listing.get(k,'')) for k in ('propertySubtype','propertyType')).strip()
     listing['photos']=photos
     listing['shareId']=''

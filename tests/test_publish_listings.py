@@ -43,8 +43,21 @@ class PublishListingTests(unittest.TestCase):
     def test_allow_list_mapping_and_marketing_copy(self):
         listing=server._listing_from_draft({'location':'Melaka','propertyType':'Terrace','price':500000,
             'missingFields':['bedrooms'],'attacker':'no'},'中文广告',['https://public/image.jpg'])
-        self.assertEqual(listing['rawText'],'中文广告');self.assertEqual(listing['photos'],['https://public/image.jpg'])
+        self.assertEqual(listing['rawText'],'location: Melaka\npropertyType: Terrace\nprice: 500000\n中文广告')
+        self.assertEqual(listing['photos'],['https://public/image.jpg'])
         self.assertNotIn('attacker',listing);self.assertNotIn('missingFields',listing)
+    def test_original_message_and_identifiers_never_enter_listing(self):
+        private='PRIVATE ORIGINAL MESSAGE +60 12-345 6789 whatsapp-ingestion/submission/private-object'
+        listing=server._listing_from_draft({'location':'Melaka','propertyType':'Terrace',
+            'originalWhatsAppText':private,'senderId':'60123456789','metaMessageId':'wamid.secret'},
+            'Approved public copy',[])
+        self.assertNotIn('PRIVATE ORIGINAL MESSAGE',json.dumps(listing))
+        self.assertNotIn('whatsapp-ingestion',json.dumps(listing))
+        self.assertNotIn('12-345 6789',json.dumps(listing))
+        for value in ('Call +60 12-345 6789','wamid.ABCDEF','whatsapp-ingestion/private/path',
+                      '11111111-1111-4111-8111-111111111111'):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                server._listing_from_draft({'location':'Melaka'},value,[])
     def test_invalid_field_type_is_rejected(self):
         with self.assertRaises(ValueError):server._listing_from_draft({'price':'not numeric'},'',[])
     def test_success_copies_images_and_publishes_once(self):
@@ -80,5 +93,14 @@ class PublishListingTests(unittest.TestCase):
         self.assertIn('published_listing_id',sql);self.assertIn("values ('listing-images','listing-images',true)",sql)
         phase2=(Path(server.__file__).parent/'supabase/migrations/202609140002_whatsapp_media_ingestion.sql').read_text()
         self.assertIn("values ('whatsapp-ingestion', 'whatsapp-ingestion', false)",phase2)
+    def test_listing_images_are_public_read_and_browser_write_denied(self):
+        sql=(Path(server.__file__).parent/'supabase/migrations/202609170001_publish_approved_listings.sql').read_text()
+        self.assertIn("values ('listing-images','listing-images',true)",sql)
+        self.assertIn('for select to anon,authenticated',sql)
+        self.assertNotIn('for select to anon,authenticated\n  using (bucket_id<>',sql)
+        for operation in ('insert','update','delete'):
+            self.assertIn(f'for {operation} to anon,authenticated',sql)
+        self.assertGreaterEqual(sql.count("bucket_id<>'listing-images'"),4)
+        self.assertIn('service_role bypasses RLS and is the sole writer',sql)
 
 if __name__=='__main__':unittest.main()

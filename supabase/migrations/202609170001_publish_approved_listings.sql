@@ -28,6 +28,19 @@ drop policy if exists listing_images_public_read on storage.objects;
 create policy listing_images_public_read on storage.objects for select to anon,authenticated
   using (bucket_id='listing-images');
 
+-- Restrictive, command-specific policies override any broader permissive
+-- browser policy without affecting the public SELECT policy above. The server
+-- service_role bypasses RLS and is the sole writer for this bucket.
+drop policy if exists listing_images_anon_authenticated_insert_deny on storage.objects;
+create policy listing_images_anon_authenticated_insert_deny on storage.objects as restrictive
+  for insert to anon,authenticated with check (bucket_id<>'listing-images');
+drop policy if exists listing_images_anon_authenticated_update_deny on storage.objects;
+create policy listing_images_anon_authenticated_update_deny on storage.objects as restrictive
+  for update to anon,authenticated using (bucket_id<>'listing-images') with check (bucket_id<>'listing-images');
+drop policy if exists listing_images_anon_authenticated_delete_deny on storage.objects;
+create policy listing_images_anon_authenticated_delete_deny on storage.objects as restrictive
+  for delete to anon,authenticated using (bucket_id<>'listing-images');
+
 create or replace function public.publish_approved_listing(draft_id uuid, publishing_owner uuid, clean_listing jsonb)
 returns jsonb language plpgsql security invoker set search_path=public as $$
 declare draft public.listing_submission_drafts; listing_id uuid;

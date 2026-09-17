@@ -103,7 +103,8 @@ Deployment and verification:
    `AI_DRAFT_ENABLED` and is never triggered by publishing.
 2. Run `supabase/migrations/202609170001_publish_approved_listings.sql` in the
    Supabase SQL Editor. It is idempotent and adds publication tracking, the
-   public listing-image bucket/read policy, an immutable-published-draft guard,
+   public listing-image bucket/read policy, restrictive browser write-deny
+   policies, an immutable-published-draft guard,
    and the atomic publishing function.
 3. Confirm the server-only Supabase service-role secret is configured. No new
    browser secret or feature flag is required.
@@ -138,6 +139,9 @@ alter table public.listing_submission_drafts
   drop column if exists published_at,
   drop column if exists published_listing_id;
 drop policy if exists listing_images_public_read on storage.objects;
+drop policy if exists listing_images_anon_authenticated_insert_deny on storage.objects;
+drop policy if exists listing_images_anon_authenticated_update_deny on storage.objects;
+drop policy if exists listing_images_anon_authenticated_delete_deny on storage.objects;
 -- Only after confirming no retained listing references these objects:
 delete from storage.objects where bucket_id='listing-images';
 delete from storage.buckets where id='listing-images';
