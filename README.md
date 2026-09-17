@@ -86,6 +86,64 @@ explicit confirmed regenerate starts a new attempt for that same record.
 Operational logs contain fixed status/error codes only, never prompts, property
 text, credentials, or identifiers.
 
+## Publishing approved drafts (Phase 3B)
+
+Phase 3B remains fully manual: after reviewing and approving a draft, an admin
+must separately click **Publish Listing** and confirm. The server allow-lists the
+existing listing fields, maps `marketing_copy` to the existing `rawText` field,
+and puts public image URLs in the existing `photos` array. Stored submission
+images are copied to the public `listing-images` bucket using deterministic
+object names; the original `whatsapp-ingestion` bucket and objects stay private
+and are never returned as listing URLs.
+
+Deployment and verification:
+
+1. Deploy the application code, but do not publish until the database migration
+   is complete. AI generation remains controlled independently by
+   `AI_DRAFT_ENABLED` and is never triggered by publishing.
+2. Run `supabase/migrations/202609170001_publish_approved_listings.sql` in the
+   Supabase SQL Editor. It is idempotent and adds publication tracking, the
+   public listing-image bucket/read policy, an immutable-published-draft guard,
+   and the atomic publishing function.
+3. Confirm the server-only Supabase service-role secret is configured. No new
+   browser secret or feature flag is required.
+4. As an admin, approve a test draft, click **Publish Listing**, review the
+   confirmation, and publish. Verify exactly one `team_listings` row exists,
+   `published_listing_id` and `published_at` are set, every successfully stored
+   image is visible on the listing, and the listing contains no
+   `whatsapp-ingestion` URL or path.
+5. Click Publish again (or replay the request) and verify it returns the same
+   listing ID without creating another row. Also verify a non-approved draft is
+   rejected and remains unchanged.
+
+Publishing failures leave the approved draft and all original private images in
+place for a safe retry. A failed copy may leave deterministic public objects;
+the retry safely overwrites those same names and cannot create a duplicate
+listing because the final database function locks the draft and commits the
+listing plus tracking atomically.
+
+### Phase 3B rollback
+
+First stop using the Publish action by rolling the application back. Existing
+published `team_listings` are normal website listings and are intentionally not
+deleted. After any required image retention/export, run:
+
+```sql
+begin;
+drop function if exists public.publish_approved_listing(uuid,uuid,jsonb);
+drop trigger if exists prevent_published_draft_changes on public.listing_submission_drafts;
+drop function if exists public.prevent_published_draft_changes();
+drop index if exists public.listing_submission_drafts_published_listing_unique;
+alter table public.listing_submission_drafts
+  drop column if exists published_at,
+  drop column if exists published_listing_id;
+drop policy if exists listing_images_public_read on storage.objects;
+-- Only after confirming no retained listing references these objects:
+delete from storage.objects where bucket_id='listing-images';
+delete from storage.buckets where id='listing-images';
+commit;
+```
+
 Run all tests with:
 
 ```bash
