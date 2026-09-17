@@ -126,6 +126,7 @@ body{background:#f7f1e9}
 .filter-search::placeholder{color:#aa9b90}
 .filter-choices button{border:1px solid #e4d8cc;border-radius:99px;padding:7px 10px;background:#fff;color:#6e6057;font:700 11px inherit;cursor:pointer}
 .filter-choices button.active{border-color:#754633;background:#754633;color:#fff;box-shadow:0 3px 8px #75463325}
+.filter-choices .filter-any{border-style:dashed}
 .filter-group select{display:none}
 .filter-panel>button{margin-top:14px;border:0;background:none;color:#9a5a42;font-weight:800;cursor:pointer}
 .listing-card{border-color:#eadfd4}
