@@ -42,7 +42,14 @@ begin
   on conflict (listing_submission_id,prompt_version) do update
     set status='pending', structured_data=null, marketing_copy=null, error_code=null,
         model_name=excluded.model_name, updated_at=now()
-    where regenerate and public.listing_submission_drafts.status <> 'pending';
+    -- A normal request never takes over an existing attempt. Explicit retries
+    -- may immediately replace a finished attempt, but an in-flight attempt is
+    -- protected for 15 minutes before it can be reclaimed. The conflict update
+    -- is atomic, so simultaneous retry clicks cannot both acquire the draft.
+    where regenerate and (
+      public.listing_submission_drafts.status <> 'pending'
+      or public.listing_submission_drafts.updated_at < now() - interval '15 minutes'
+    );
   get diagnostics affected = row_count;
   did_claim := affected > 0;
   select * into draft from public.listing_submission_drafts
