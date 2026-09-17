@@ -390,6 +390,9 @@ def sanitized_supabase_error_message(value,sensitive_values=()):
     message=re.sub(r'\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b','<redacted-jwt>',message)
     message=re.sub(r'\bsb_(?:secret|service_role)_[A-Za-z0-9._-]+\b','<redacted-secret>',message,
                    flags=re.IGNORECASE)
+    message=re.sub(r'(?i)\bwhatsapp-ingestion(?:/[^\s,;"\']+)+','<redacted-storage-path>',message)
+    message=re.sub(r'(?i)\b(?:wamid|meta[_ -]?(?:message|media)[_ -]?id)\b\s*[:=]?\s*[^\s,;]+',
+                   '<redacted-meta-id>',message)
     message=re.sub(
         r'\b(api[_ -]?key|token|secret|password|authorization)\b\s*[:=]\s*(?:"[^"]*"|\'[^\']*\'|[^\s,;]+)',
         r'\1=<redacted>',message,flags=re.IGNORECASE,
@@ -406,6 +409,16 @@ def supabase_error_fields(body,sensitive_values=()):
     code=payload.get('code')
     if not isinstance(code,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',code):code='<unavailable>'
     return code,sanitized_supabase_error_message(payload.get('message'),sensitive_values)
+
+def supabase_error_diagnostics(body,sensitive_values=()):
+    """Extract bounded PostgREST diagnostics without retaining its response body."""
+    try:payload=json.loads(body)
+    except (TypeError,UnicodeDecodeError,json.JSONDecodeError):payload={}
+    if not isinstance(payload,dict):payload={}
+    code=payload.get('code')
+    if not isinstance(code,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',code):code='<unavailable>'
+    sanitize=lambda field:sanitized_supabase_error_message(payload.get(field),sensitive_values)
+    return code,sanitize('message'),sanitize('details'),sanitize('hint')
 
 def string_values(value):
     """Collect request strings so an upstream echo cannot expose payload data."""
@@ -574,6 +587,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not allowed:return self.reply(auth_status,{'error':'Admin access required' if auth_status==403 else 'Unauthorized'})
             draft_id=_valid_uuid(match.group(1))
             if not draft_id:return self.reply(400,{'error':'Invalid draft ID'})
+            operation='publish_approved_listing'
+            draft=listing=None
             try:
                 rows=_supabase_request('/rest/v1/listing_submission_drafts?id=eq.'+quote(draft_id,safe='')+
                     '&select=id,listing_submission_id,structured_data,marketing_copy,status,published_listing_id,published_at')
@@ -586,8 +601,10 @@ class Handler(SimpleHTTPRequestHandler):
                 user=_supabase_request('/auth/v1/user',token=_bearer_token(self.headers))
                 owner=_valid_uuid(user.get('id') if isinstance(user,dict) else None)
                 if not owner:return self.reply(401,{'error':'Unauthorized'})
+                operation='copy_listing_image'
                 photos=_copy_submission_images(draft['listing_submission_id'],draft_id)
                 listing=_listing_from_draft(draft.get('structured_data'),draft.get('marketing_copy'),photos)
+                operation='publish_approved_listing'
                 result=_supabase_request('/rest/v1/rpc/publish_approved_listing','POST',{
                     'draft_id':draft_id,'publishing_owner':owner,'clean_listing':listing})
                 _draft_logger.info('Approved listing publish completed: duplicate=%s image_count=%s',
@@ -595,10 +612,26 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.reply(200,{'listing_id':result.get('listing_id'),
                     'published_at':result.get('published_at'),'duplicate':bool(result.get('duplicate'))})
             except ValueError:
-                _draft_logger.error('Approved listing publish failed: error_code=validation_failed')
+                _draft_logger.error('Approved listing publish failed: error_code=validation_failed operation=%s',operation)
                 return self.reply(422,{'error':'Approved draft contains invalid listing data','code':'validation_failed'})
+            except HTTPError as error:
+                try:response_body=error.read(64*1024)
+                except Exception:response_body=b''
+                sensitive=string_values(listing) if listing is not None else ()
+                # Include the reviewed source fields separately: PostgREST may echo
+                # one value from clean_listing rather than the complete JSON value.
+                if isinstance(draft,dict):
+                    sensitive+=string_values((draft.get('structured_data'),draft.get('marketing_copy')))
+                code,message,details,hint=supabase_error_diagnostics(response_body,sensitive)
+                _draft_logger.error(
+                    'Approved listing publish failed: error_code=publish_failed exception_class=HTTPError '
+                    'status=%s code=%s message=%s details=%s hint=%s operation=%s',
+                    error.code,code,message,details,hint,operation,
+                )
+                return self.reply(503,{'error':'Publishing failed; the approved draft can be retried','code':'publish_failed'})
             except Exception as error:
-                _draft_logger.error('Approved listing publish failed: error_code=publish_failed exception_class=%s',type(error).__name__)
+                _draft_logger.error('Approved listing publish failed: error_code=publish_failed exception_class=%s operation=%s',
+                                    type(error).__name__,operation)
                 return self.reply(503,{'error':'Publishing failed; the approved draft can be retried','code':'publish_failed'})
         match=re.fullmatch(r'/api/admin/listing-submissions/([^/]+)/generate',parsed_path)
         if match:

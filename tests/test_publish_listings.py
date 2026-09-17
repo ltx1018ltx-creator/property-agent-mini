@@ -1,10 +1,13 @@
 import http.client
 import json
+import logging
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import server
 
@@ -87,6 +90,52 @@ class PublishListingTests(unittest.TestCase):
              patch.object(server,'_copy_submission_images',side_effect=OSError('storage unavailable')):
             status,body=self.request()
         self.assertEqual((status,body['code']),(503,'publish_failed'))
+
+    def test_publish_http_error_logs_sanitized_postgrest_diagnostics(self):
+        secret='service-role-secret'
+        clean_value='Approved copy'
+        response=json.dumps({'code':'23505','message':f'duplicate {clean_value} phone +60123456789',
+            'details':f'Authorization: Bearer {secret}',
+            'hint':'See https://private.example/rest/v1 and wamid.SECRET_MESSAGE'}).encode()
+        error=HTTPError('https://private.example/rest/v1/rpc/publish_approved_listing',409,
+                        'private reason',{},BytesIO(response))
+        def db(path,method='GET',payload=None,**kwargs):
+            if path.startswith('/rest/v1/listing_submission_drafts'):return [self.draft()]
+            if path=='/auth/v1/user':return {'id':UID}
+            raise error
+        with patch.object(server,'SUPABASE_SERVICE_ROLE_KEY',secret), \
+             patch.object(server,'require_admin',return_value=(True,200)), \
+             patch.object(server,'_supabase_request',side_effect=db), \
+             patch.object(server,'_copy_submission_images',return_value=[]), \
+             self.assertLogs('ai.drafts',logging.ERROR) as logs:
+            status,body=self.request()
+        output=' '.join(logs.output)
+        self.assertEqual((status,body['code']),(503,'publish_failed'))
+        self.assertIn('status=409 code=23505',output)
+        self.assertIn('operation=publish_approved_listing',output)
+        self.assertIn('message=duplicate <redacted> phone <redacted-phone>',output)
+        self.assertIn('details=Authorization=<redacted>',output)
+        for sensitive in (secret,clean_value,'60123456789','private.example','wamid.SECRET_MESSAGE','private reason'):
+            self.assertNotIn(sensitive,output)
+
+    def test_copy_http_error_redacts_private_storage_and_meta_identifiers(self):
+        response=json.dumps({'code':'PGRST116','message':'copy failed',
+            'details':'whatsapp-ingestion/submission/private-object',
+            'hint':'meta_media_id=123456789012345'}).encode()
+        error=HTTPError('https://private.example/storage/private-object',404,'private reason',{},BytesIO(response))
+        with patch.object(server,'require_admin',return_value=(True,200)), \
+             patch.object(server,'_supabase_request',side_effect=([self.draft()],{'id':UID})), \
+             patch.object(server,'_copy_submission_images',side_effect=error), \
+             self.assertLogs('ai.drafts',logging.ERROR) as logs:
+            status,body=self.request()
+        output=' '.join(logs.output)
+        self.assertEqual((status,body['code']),(503,'publish_failed'))
+        self.assertIn('status=404 code=PGRST116 message=copy failed',output)
+        self.assertIn('operation=copy_listing_image',output)
+        self.assertIn('details=<redacted-storage-path>',output)
+        self.assertIn('hint=<redacted-meta-id>',output)
+        for sensitive in ('private-object','123456789012345','private.example','private reason'):
+            self.assertNotIn(sensitive,output)
     def test_migration_has_atomic_idempotency_and_private_source(self):
         sql=(Path(server.__file__).parent/'supabase/migrations/202609170001_publish_approved_listings.sql').read_text()
         self.assertIn('for update',sql);self.assertIn("draft.status<>'approved'",sql)
