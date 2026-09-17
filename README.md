@@ -58,6 +58,38 @@ codes are persisted. A failed media request therefore does not remove or alter
 the already stored message. The feature does not call AI or write to
 `team_listings`.
 
+## Atomic WhatsApp grouping and manual merge
+
+Deploy the application, then run
+`supabase/migrations/202609170003_atomic_whatsapp_grouping_and_merge.sql` in the
+Supabase SQL Editor. The idempotent migration backfills a direction-independent
+conversation key, replaces ingestion with a transaction-level advisory lock and
+a rolling five-minute server-receipt window, and installs the service-role-only
+merge RPC. Meta timestamps remain message metadata but no longer decide which
+active submission receives an out-of-order delivery.
+
+Verification:
+
+1. Send text and several images concurrently in both webhook delivery
+   directions and verify that one ungenerated submission contains every unique
+   Meta message ID.
+2. Replay a webhook and verify its message count does not change. Send another
+   message just under five minutes after the prior receipt and verify it extends
+   the same submission; after five inactive minutes, verify a new submission is
+   created.
+3. Verify two different WhatsApp conversations never group together and that a
+   generated, reviewed, or published submission never receives new messages.
+4. In **WhatsApp Draft Inbox**, select two or more ungenerated submissions from
+   one conversation, click **Merge Submissions**, and confirm. Verify all text
+   and stored images appear once under the first selection and the empty source
+   rows are gone.
+5. Verify a non-admin request is rejected, and try a cross-conversation or
+   generated selection to confirm the entire merge rolls back unchanged.
+
+The server logs only the selected submission count and fixed failure metadata;
+it never logs phone numbers, Meta identifiers, message text, tokens, or private
+Storage paths.
+
 ## AI-assisted submission drafts (Phase 3A)
 
 Phase 3A adds a private, admin-only review inbox. It never publishes a listing
