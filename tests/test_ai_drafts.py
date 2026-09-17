@@ -136,6 +136,7 @@ class DraftTests(unittest.TestCase):
     def test_missing_fields_schema_allows_null(self):
         schema=server._draft_schema()['properties']['structuredData']
         self.assertIn('null',schema['properties']['location']['type'])
+        self.assertEqual(schema['properties']['landSize']['type'],['string','null'])
         self.assertEqual(set(server.AI_DRAFT_FIELDS),set(schema['properties']['missingFields']['items']['enum']))
     @staticmethod
     def _empty_generated_draft(**values):
@@ -155,7 +156,9 @@ class DraftTests(unittest.TestCase):
     def test_explicit_property_types_override_terrace_default(self):
         cases={'Semi-D':'Semi-D','Bungalow':'Bungalow','Condominium':'Condominium',
                'Apartment':'Apartment','Flat':'Flat','Shop Lot':'Shop Lot','Commercial':'Commercial',
-               'Industrial':'Industrial','Agriculture':'Agriculture','Land':'Land','Townhouse':'Townhouse'}
+               'Industrial':'Industrial','Vacant Land':'Land','Land':'Land','Townhouse':'Townhouse',
+               'Agricultural land':'Land','Residential land':'Land','Development land':'Land',
+               'Land for sale':'Land'}
         for source,expected in cases.items():
             with self.subTest(source=source):
                 result=server._normalize_draft(self._empty_generated_draft(),source)
@@ -166,18 +169,29 @@ class DraftTests(unittest.TestCase):
             with self.subTest(source=source):
                 result=server._normalize_draft(self._empty_generated_draft(),source)
                 self.assertEqual(result['structuredData']['titleType'],expected)
-    def test_model_extracted_other_explicit_values_are_preserved(self):
+    def test_unrecognized_model_property_type_is_replaced_by_default(self):
         result=server._normalize_draft(
-            self._empty_generated_draft(propertyType='Duplex',titleType='Consent Required'),
-            'Duplex, consent required')
-        self.assertEqual(result['structuredData']['propertyType'],'Duplex')
+            self._empty_generated_draft(propertyType='Land',titleType='Consent Required'),
+            'A lovely home, consent required')
+        self.assertEqual(result['structuredData']['propertyType'],'Terrace')
         self.assertEqual(result['structuredData']['titleType'],'Consent Required')
-    def test_land_dimension_formats_are_converted_to_square_feet(self):
-        for source in ('Land size 22x70','22 x 70 sqft','土地 22x70'):
+    def test_land_dimension_formats_are_preserved_without_classifying_as_land(self):
+        for source in ('Land size 22x70','land area 22 x 70','lot size 22x70','22 x 70 sqft','土地 22x70'):
             with self.subTest(source=source):
-                result=server._normalize_draft(self._empty_generated_draft(),source)
-                self.assertEqual(result['structuredData']['landSize'],1540)
+                result=server._normalize_draft(self._empty_generated_draft(propertyType='Land'),source)
+                self.assertEqual(result['structuredData']['landSize'],'22x70')
+                self.assertEqual(result['structuredData']['propertyType'],'Terrace')
                 self.assertNotIn('landSize',result['structuredData']['missingFields'])
+    def test_land_size_listing_regression(self):
+        source=('For Sale\nKampung 7 Kenanga Double Storey\nFreehold\nLand size 22x70\n'
+                '5 bedrooms\n3 bathrooms\nFacing North\nFully furnished and renovated\n'
+                'Good condition\nSelling price RM780,000')
+        result=server._normalize_draft(self._empty_generated_draft(propertyType='Land'),source)
+        data=result['structuredData']
+        self.assertEqual(data['propertyType'],'Terrace')
+        self.assertEqual(data['propertySubtype'],'Double Storey')
+        self.assertEqual(data['landSize'],'22x70')
+        self.assertEqual(data['titleType'],'Non-Bumi')
     def test_safe_logging_omits_property_text_and_keys(self):
         secret='sk-private';text='PRIVATE PROPERTY 60123456789'
         with patch.dict(os.environ,{'OPENAI_API_KEY':secret}),self.assertLogs('ai.drafts',logging.ERROR) as logs:
