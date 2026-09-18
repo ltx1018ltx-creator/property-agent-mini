@@ -593,6 +593,31 @@ class Handler(SimpleHTTPRequestHandler):
         body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
         parsed_path=urlsplit(self.path).path
+        match=re.fullmatch(r'/api/admin/listing-submissions/([^/]+)/split',parsed_path)
+        if match:
+            allowed,auth_status=require_admin(self.headers)
+            if not allowed:return self.reply(auth_status,{'error':'Admin access required' if auth_status==403 else 'Unauthorized'})
+            submission_id=_valid_uuid(match.group(1))
+            if not submission_id:return self.reply(400,{'error':'Invalid submission ID'})
+            try:size=int(self.headers.get('Content-Length','0'))
+            except ValueError:return self.reply(400,{'error':'Invalid request'})
+            if size<0 or size>AI_DRAFT_MAX_BYTES:return self.reply(413,{'error':'Payload too large'})
+            try:
+                payload=json.loads(self.rfile.read(size) or b'{}')
+                if not isinstance(payload,dict) or set(payload)!={'message_ids','operation_id'}:raise ValueError()
+                operation_id=_valid_uuid(payload['operation_id']);message_ids=payload['message_ids']
+                if not operation_id or not isinstance(message_ids,list) or not 1<=len(message_ids)<=500:raise ValueError()
+                if any(isinstance(v,bool) or not isinstance(v,int) or v<1 for v in message_ids) or len(set(message_ids))!=len(message_ids):raise ValueError()
+            except (UnicodeDecodeError,json.JSONDecodeError,ValueError,KeyError):return self.reply(400,{'error':'Select valid messages to split'})
+            try:
+                result=_supabase_request('/rest/v1/rpc/split_listing_submission','POST',{'original_submission_id':submission_id,'selected_message_ids':message_ids,'operation_id':operation_id})
+                _draft_logger.info('Submission split completed: moved_message_count=%s duplicate=%s',result.get('moved_message_count'),str(bool(result.get('duplicate'))).lower())
+                return self.reply(200,result)
+            except HTTPError as error:
+                return self.reply(409 if error.code in (400,404,409) else 503,{'error':'Submission cannot be split','code':'split_rejected'})
+            except Exception as error:
+                _draft_logger.error('Submission split failed: exception_class=%s',type(error).__name__)
+                return self.reply(503,{'error':'Split unavailable','code':'split_failed'})
         if parsed_path=='/api/admin/listing-submissions/merge':
             allowed,auth_status=require_admin(self.headers)
             if not allowed:return self.reply(auth_status,{'error':'Admin access required' if auth_status==403 else 'Unauthorized'})
