@@ -7,7 +7,7 @@
   <title>Property Agent Hub</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-source.jpg">
-  <link rel="stylesheet" href="styles.css?v=39">
+  <link rel="stylesheet" href="styles.css?v=40">
   <link rel="stylesheet" href="cases.css">
   <link rel="stylesheet" href="photos.css?v=17">
 </head>
@@ -212,7 +212,8 @@ Send one listing object using fields such as location, propertyType, propertySub
   <dialog id="importListingDialog"><form method="dialog" id="importListingForm"><h3>Paste from WhatsApp</h3><p class="dialog-help">Copy 整段房产资料贴进来，我会自动拆成 Listing fields。</p><textarea id="whatsappListingText" rows="13" required placeholder="FOR SALE\nDouble Storey Terrace...\nFreehold\nLand 22x70\n4 Bedrooms 3 Bathrooms\nRM430,000"></textarea><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="parseListingBtn">Import</button></div></form></dialog>
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <dialog id="adminAgentDialog" class="admin-dialog"><div class="admin-dialog-body"><button type="button" class="dialog-close" id="closeAdminAgentDialog" aria-label="Close">×</button><h3 id="adminAgentTitle">Agent details</h3><p id="adminAgentMeta" class="admin-agent-meta"></p><div id="adminAgentDetails"></div></div></dialog>
+  <dialog id="splitSubmissionDialog" class="admin-dialog"><form id="splitSubmissionForm" class="admin-dialog-body"><button type="button" class="dialog-close" id="closeSplitSubmissionDialog" aria-label="Close">×</button><h3>Split Submission</h3><p class="admin-agent-meta">Select every message and image that belongs to the new property. Unselected items remain in the original.</p><div id="splitSubmissionItems" class="split-items"></div><p id="splitSubmissionError" class="split-error" role="alert"></p><div class="actions"><button type="button" id="cancelSplitSubmission">Cancel</button><button type="submit" class="primary" id="confirmSplitSubmission">Review split</button></div></form></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=3"></script><script src="app.js?v=56"></script>
+  <script src="supabase.js?v=3"></script><script src="app.js?v=57"></script>
 </body>
 </html>

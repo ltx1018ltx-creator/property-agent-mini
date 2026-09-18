@@ -248,3 +248,22 @@ commit;
 ```
 
 For production, run this server behind HTTPS with authentication and persistent storage. A `trycloudflare.com` quick tunnel is for temporary previews only and does not provide a fixed hostname or uptime guarantee.
+
+## Splitting an incorrectly grouped submission
+
+1. Run `supabase/migrations/202609180001_split_listing_submissions.sql` in the
+   Supabase SQL editor after the WhatsApp, draft, and atomic-grouping migrations.
+   The migration is safe to run repeatedly.
+2. Sign in as an admin and open **Admin → WhatsApp Draft Inbox**. **Split
+   Submission** appears only when an ungenerated submission has two or more items.
+3. Select the text messages and image rows for the new property, click **Review
+   split**, and confirm. At least one item must move and one must remain.
+4. Refresh and verify both submissions. Only message rows move; stored image
+   objects and their private references are neither copied nor deleted. Retrying
+   the same confirmed operation is safe.
+
+The function uses the webhook's per-conversation advisory lock, locks the source
+and messages, rejects submissions with a draft (including a published listing),
+and recalculates both activity ranges in one transaction. The admin-only HTTP
+route logs only counts, booleans, fixed codes, and exception classes—never text,
+phone numbers, Meta IDs, storage paths, tokens, or secrets.
