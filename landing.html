@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#7b4334">
-  <meta name="description" content="A thoughtful collection of homes and property opportunities in Melaka, curated by Tong Xen Property.">
-  <title>Tong Xen Property · Homes with heart in Melaka</title>
-  <link rel="stylesheet" href="landing.css?v=2">
+  <meta name="description" content="A thoughtful collection of homes and property opportunities in Melaka, curated by Mari Property.">
+  <title>Mari Property · Homes with heart in Melaka</title>
+  <link rel="stylesheet" href="landing.css?v=3">
 </head>
 <body>
   <header class="hero">
     <nav class="nav" aria-label="Main navigation">
-      <a class="brand" href="#properties" aria-label="Tong Xen Property home">
-        <span class="brand-mark" aria-hidden="true">TX</span>
-        <span><strong>Tong Xen Property</strong><small>Homes with heart · Melaka</small></span>
+      <a class="brand" href="#properties" aria-label="Mari Property home">
+        <span class="brand-mark" aria-hidden="true">MP</span>
+        <span><strong>Mari Property</strong><small>Homes with heart · Melaka</small></span>
       </a>
       <a class="nav-contact" href="https://wa.me/60166286918" target="_blank" rel="noopener">Let’s talk <span aria-hidden="true">↗</span></a>
     </nav>
@@ -26,7 +26,7 @@
       </div>
       <div class="hero-art" aria-hidden="true">
         <div class="sun"></div><div class="arch"><div class="door"></div></div>
-        <p>Melaka<br><span>made for living</span></p>
+        <p class="hero-art-copy"><strong>Melaka</strong><span>made for living</span></p>
       </div>
     </div>
   </header>
@@ -38,9 +38,11 @@
         <label class="search"><span>Search</span><input id="search" type="search" placeholder="Area, home or keyword…"></label>
         <label><span>Location</span><select id="location"><option value="">All locations</option></select></label>
         <label><span>Property type</span><select id="type"><option value="">All property types</option></select></label>
-        <label><span>Tenure</span><select id="tenure"><option value="">Any tenure</option></select></label>
-        <label><span>Price range</span><select id="price"><option value="">Any price</option><option value="0-500000">Below RM500k</option><option value="500000-1000000">RM500k–RM1m</option><option value="1000000-Infinity">Above RM1m</option></select></label>
+        <label><span>Property subtype</span><select id="subtype"><option value="">All subtypes</option></select></label>
+        <label><span>Tenure</span><select id="tenure"><option value="">Any tenure</option><option value="Freehold">Freehold</option><option value="Leasehold">Leasehold</option></select></label>
+        <label><span>Price range</span><select id="price"><option value="">Any price</option></select></label>
       </div>
+      <div class="filter-actions"><button id="clear" type="button">Clear filters</button><small>Filters search the listings loaded on this page. Use “View more properties” to load and search the next page.</small></div>
     </section>
 
     <section class="collection" aria-labelledby="collection-title">
@@ -55,9 +57,10 @@
     </section>
   </main>
 
-  <footer><a class="brand footer-brand" href="#properties"><span class="brand-mark">TX</span><span><strong>Tong Xen Property</strong><small>Homes with heart · Melaka</small></span></a><p>Thoughtful property guidance, rooted in Melaka.</p><p>© <span id="year"></span> Tong Xen Property · REN 51905</p></footer>
+  <footer><a class="brand footer-brand" href="#properties"><span class="brand-mark">MP</span><span><strong>Mari Property</strong><small>Homes with heart · Melaka</small></span></a><p>Thoughtful property guidance, rooted in Melaka.</p><p>© <span id="year"></span> Mari Property · Tong Xen, REN 51905</p></footer>
 
   <dialog id="dialog" aria-label="Property details"><button class="close" aria-label="Close property details">×</button><div id="detail"></div></dialog>
-  <script src="landing.js?v=2"></script>
+  <script src="landing-filters.js?v=1"></script>
+  <script src="landing.js?v=3"></script>
 </body>
 </html>
