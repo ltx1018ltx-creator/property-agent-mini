@@ -1039,6 +1039,11 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:return self.reply(400,{'error':'invalid state'})
     def do_GET(self):
         parsed=urlsplit(self.path)
+        # Public assets must be dispatched before the API router.  In
+        # particular, do not let a later catch-all turn a valid static request
+        # into the generic 404 response.
+        if parsed.path in PUBLIC_STATIC_FILES:
+            return self.serve_public_file(parsed.path)
         if parsed.path=='/api/public/catalog':
             query=parse_qs(parsed.query,keep_blank_values=True)
             agent=_valid_uuid(query.get('agent',[None])[0])
@@ -1131,7 +1136,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith('/api/shares/'):
             sid=self.path.split('/')[-1].split('?')[0];item=load().get(sid)
             return self.reply(200,item) if item else self.reply(404,{'error':'not found'})
-        return self.serve_public_file(parsed.path)
+        return self.send_error(404)
     def do_PATCH(self):
         match=re.fullmatch(r'/api/admin/listing-submission-drafts/([^/]+)',urlsplit(self.path).path)
         if not match:return self.send_error(404)
