@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: property-agent-mini
+    name: mari-property
     runtime: python
     plan: free
     buildCommand: ""
@@ -12,7 +12,7 @@ services:
       - key: WHATSAPP_ALLOWED_CONVERSATION_KEY
         sync: false
       - key: SITE_URL
-        value: https://property-agent-mini.onrender.com
+        value: https://mari-property.onrender.com
       - key: AI_DRAFT_ENABLED
         value: false
       - key: OPENAI_API_KEY
