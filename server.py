@@ -662,7 +662,13 @@ def load_imports():
     except:return {}
 def save_imports(data):IMPORTS.write_text(json.dumps(data,separators=(',',':')))
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT),**kw)
+    def __init__(self,*args,**kwargs):
+        # Render does not guarantee that the process working directory is the
+        # repository root.  Always resolve browser assets relative to this
+        # module so routes such as /landing.html cannot depend on how the
+        # service was started.
+        super().__init__(*args,directory=str(ROOT),**kwargs)
+
     def log_request(self,code='-',size='-'):
         parsed=urlsplit(self.path)
         if parsed.path=='/api/whatsapp/webhook':
