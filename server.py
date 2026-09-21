@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, hmac, json, logging, os, re, secrets, socket, threading, uuid
+import base64, hashlib, hmac, json, logging, os, re, secrets, socket, threading, time, uuid
 from collections import OrderedDict
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -21,6 +21,13 @@ WHATSAPP_INGESTION_RPC_PATH='/rest/v1/rpc/ingest_whatsapp_message'
 SUPABASE_ERROR_MESSAGE_MAX_CHARS=300
 WHATSAPP_MEDIA_BUCKET='whatsapp-ingestion'
 LISTING_IMAGE_BUCKET='listing-images'
+PUBLIC_CATALOG_TIMEOUT_SECONDS=8
+PUBLIC_CATALOG_CACHE_SECONDS=30
+PUBLIC_LISTING_FIELDS=('title','location','propertyType','propertySubtype','tenure','lotType','deal','price',
+                       'landSize','builtUp','bedrooms','bathrooms','carParks','furnishing','renovation',
+                       'titleType','landTitle','bumiLot','facing')
+_public_catalog_cache={}
+_public_catalog_cache_lock=threading.Lock()
 WHATSAPP_MEDIA_MAX_BYTES=15*1024*1024
 WHATSAPP_MEDIA_TIMEOUT_SECONDS=10
 WHATSAPP_MEDIA_MIME_TYPES=frozenset(('image/jpeg','image/png','image/webp'))
@@ -91,6 +98,84 @@ def ai_draft_enabled():
 def _valid_uuid(value):
     try:return str(uuid.UUID(str(value)))
     except (ValueError,TypeError,AttributeError):return None
+
+def _public_cursor(value):
+    if not value:return None
+    if not isinstance(value,str) or len(value)>300 or not re.fullmatch(r'[A-Za-z0-9_-]+',value):raise ValueError('invalid_cursor')
+    try:
+        raw=base64.urlsafe_b64decode(value+'='*(-len(value)%4))
+        data=json.loads(raw)
+        created=data['createdAt'];listing_id=_valid_uuid(data['id'])
+        if not listing_id or not isinstance(created,str) or len(created)>40 or not re.fullmatch(r'\d{4}-\d\d-\d\dT[^\s,]+',created):raise ValueError()
+        return created,listing_id
+    except Exception:raise ValueError('invalid_cursor')
+
+def _encode_public_cursor(created,listing_id):
+    raw=json.dumps({'createdAt':created,'id':listing_id},separators=(',',':')).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+def _safe_public_image(value,allow_data=False):
+    if not isinstance(value,str) or len(value)>10_000_000:return None
+    if allow_data and re.match(r'^data:image/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=\r\n]+$',value,re.I):return value
+    try:
+        parsed=urlsplit(value)
+        if parsed.scheme!='https' or not parsed.hostname:return None
+        expected=urlsplit(SUPABASE_URL).hostname
+        if parsed.hostname!=expected or not parsed.path.startswith('/storage/v1/object/public/listing-images/'):return None
+        return value
+    except Exception:return None
+
+def _safe_public_listing(row,detail=False):
+    if not isinstance(row,dict) or not _valid_uuid(row.get('id')):return None
+    source=row.get('listing') if isinstance(row.get('listing'),dict) else row
+    result={'id':str(row['id']),'createdAt':row.get('created_at') or row.get('createdAt')}
+    for field in PUBLIC_LISTING_FIELDS:
+        value=source.get(field)
+        if isinstance(value,(str,int,float,bool)) and not isinstance(value,str) or isinstance(value,str) and len(value)<=20_000:
+            result[field]=value
+    candidates=source.get('photos') if isinstance(source.get('photos'),list) else []
+    if source.get('cover') is not None:candidates=[source.get('cover'),*candidates]
+    images=[]
+    for value in candidates:
+        image=_safe_public_image(value,allow_data=detail)
+        if image and image not in images:images.append(image)
+        if not detail and images:break
+    result['photos']=images
+    result['cover']=images[0] if images else None
+    return result
+
+def get_public_catalog(agent,limit,cursor=None):
+    """Fetch a bounded, owner-isolated page. Only a projected thumbnail leaves PostgREST."""
+    cache_key=(agent,limit,cursor)
+    now=time.monotonic()
+    with _public_catalog_cache_lock:
+        cached=_public_catalog_cache.get(cache_key)
+        if cached and now-cached[0]<PUBLIC_CATALOG_CACHE_SECONDS:return cached[1]
+    select=['id','created_at',*(f'{field}:listing->{field}' for field in PUBLIC_LISTING_FIELDS),
+            'cover:listing->photos->0']
+    params=f'owner_id=eq.{quote(agent,safe="")}&select={quote(",".join(select),safe="->")}&order=created_at.desc,id.asc&limit={limit+1}'
+    if cursor:
+        created,listing_id=cursor
+        predicate=f'(created_at.lt.{created},and(created_at.eq.{created},id.gt.{listing_id}))'
+        params+='&or='+quote(predicate,safe='(),.')
+    rows=_supabase_request('/rest/v1/team_listings?'+params,timeout=PUBLIC_CATALOG_TIMEOUT_SECONDS)
+    if not isinstance(rows,list):raise RuntimeError('invalid_response')
+    has_more=len(rows)>limit;page=rows[:limit]
+    listings=[item for item in (_safe_public_listing(row) for row in page) if item]
+    next_cursor=_encode_public_cursor(page[-1].get('created_at'),page[-1].get('id')) if has_more and page else None
+    result={'listings':listings,'nextCursor':next_cursor}
+    with _public_catalog_cache_lock:
+        _public_catalog_cache[cache_key]=(now,result)
+        if len(_public_catalog_cache)>256:
+            for key in sorted(_public_catalog_cache,key=lambda k:_public_catalog_cache[k][0])[:64]:_public_catalog_cache.pop(key,None)
+    return result
+
+def get_public_listing(agent,listing_id):
+    path=('/rest/v1/team_listings?owner_id=eq.'+quote(agent,safe='')+'&id=eq.'+quote(listing_id,safe='')+
+          '&select=id,created_at,listing&limit=1')
+    rows=_supabase_request(path,timeout=PUBLIC_CATALOG_TIMEOUT_SECONDS)
+    if not isinstance(rows,list) or not rows:return None
+    return _safe_public_listing(rows[0],detail=True)
 
 def _supabase_request(path,method='GET',payload=None,token=None,timeout=20,headers=None):
     key=SUPABASE_SERVICE_ROLE_KEY if token is None else SUPABASE_KEY
@@ -587,8 +672,8 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
         if self.path.endswith(('.html','.js','.css','/')):self.send_header('Cache-Control','no-cache, no-store, must-revalidate')
         super().end_headers()
-    def reply(self,status,payload):
-        body=json.dumps(payload).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
+    def reply(self,status,payload,cache_control='no-store'):
+        body=json.dumps(payload).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control',cache_control);self.end_headers();self.wfile.write(body)
     def reply_text(self,status,payload):
         body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
@@ -913,6 +998,27 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:return self.reply(400,{'error':'invalid state'})
     def do_GET(self):
         parsed=urlsplit(self.path)
+        if parsed.path=='/api/public/catalog':
+            query=parse_qs(parsed.query,keep_blank_values=True)
+            agent=_valid_uuid(query.get('agent',[None])[0])
+            try:
+                if not agent or any(key not in ('agent','limit','cursor') for key in query) or any(len(values)!=1 for values in query.values()):raise ValueError()
+                raw_limit=query.get('limit',['24'])[0]
+                if not re.fullmatch(r'\d{1,2}',raw_limit):raise ValueError()
+                limit=int(raw_limit)
+                if not 1<=limit<=24:raise ValueError()
+                cursor=_public_cursor(query.get('cursor',[None])[0])
+            except (ValueError,TypeError):return self.reply(400,{'error':'Invalid catalog request'})
+            try:return self.reply(200,get_public_catalog(agent,limit,cursor),'public, max-age=15, stale-while-revalidate=15')
+            except Exception:return self.reply(503,{'error':'Catalog temporarily unavailable'})
+        match=re.fullmatch(r'/api/public/catalog/([^/]+)',parsed.path)
+        if match:
+            query=parse_qs(parsed.query,keep_blank_values=True);agent=_valid_uuid(query.get('agent',[None])[0]);listing_id=_valid_uuid(match.group(1))
+            if not agent or not listing_id or set(query)!= {'agent'} or len(query['agent'])!=1:return self.reply(400,{'error':'Invalid listing request'})
+            try:
+                listing=get_public_listing(agent,listing_id)
+                return self.reply(200,{'listing':listing}) if listing else self.reply(404,{'error':'Listing not found'})
+            except Exception:return self.reply(503,{'error':'Listing temporarily unavailable'})
         if parsed.path=='/api/admin/listing-submissions':
             allowed,auth_status=require_admin(self.headers)
             if not allowed:return self.reply(auth_status,{'error':'Admin access required' if auth_status==403 else 'Unauthorized'})
