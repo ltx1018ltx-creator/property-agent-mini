@@ -1,17 +1,63 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#17352d"><title>Property Collection</title>
-  <link rel="stylesheet" href="landing.css?v=1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#7b4334">
+  <meta name="description" content="A thoughtful collection of homes and property opportunities in Melaka, curated by Tong Xen Property.">
+  <title>Tong Xen Property · Homes with heart in Melaka</title>
+  <link rel="stylesheet" href="landing.css?v=2">
 </head>
 <body>
-  <header class="hero"><nav><a class="brand" href="#properties"><span>PA</span><b>Property Advisor<small>Curated homes &amp; investments</small></b></a><a class="whatsapp" href="https://wa.me/60166286918" target="_blank" rel="noopener">WhatsApp agent</a></nav><div class="intro"><p>PRIVATE PROPERTY COLLECTION</p><h1>Find your next<br><em>place to belong.</em></h1><p>Explore current homes, land and investment opportunities. Contact the agent directly when one feels right.</p></div></header>
-  <main id="properties"><section class="filters" aria-label="Property filters"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search location or property…"></label><select id="location"><option value="">All locations</option></select><select id="type"><option value="">All property types</option></select><select id="tenure"><option value="">Any tenure</option></select><select id="price"><option value="">Any price</option><option value="0-500000">Below RM500k</option><option value="500000-1000000">RM500k–1m</option><option value="1000000-Infinity">Above RM1m</option></select></section>
-    <div class="heading"><div><p>AVAILABLE NOW</p><h2>Properties</h2></div><span id="count"></span></div>
-    <section id="grid" class="grid" aria-live="polite"><div class="state"><span class="spinner"></span>Loading properties…</div></section>
-    <button id="more" class="more" hidden>Load more</button>
+  <header class="hero">
+    <nav class="nav" aria-label="Main navigation">
+      <a class="brand" href="#properties" aria-label="Tong Xen Property home">
+        <span class="brand-mark" aria-hidden="true">TX</span>
+        <span><strong>Tong Xen Property</strong><small>Homes with heart · Melaka</small></span>
+      </a>
+      <a class="nav-contact" href="https://wa.me/60166286918" target="_blank" rel="noopener">Let’s talk <span aria-hidden="true">↗</span></a>
+    </nav>
+    <div class="hero-content">
+      <div class="hero-copy">
+        <p class="eyebrow">A CURATED MELAKA COLLECTION</p>
+        <h1>Find a place that<br><em>feels like home.</em></h1>
+        <p class="hero-lead">Thoughtfully selected homes, land and investments—shared with local care and honest guidance.</p>
+        <a class="hero-link" href="#properties">Explore the collection <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="sun"></div><div class="arch"><div class="door"></div></div>
+        <p>Melaka<br><span>made for living</span></p>
+      </div>
+    </div>
+  </header>
+
+  <main id="properties">
+    <section class="filter-panel" aria-labelledby="filter-title">
+      <div class="filter-heading"><span class="filter-icon" aria-hidden="true">⌕</span><div><small>FIND YOUR FIT</small><h2 id="filter-title">What are you looking for?</h2></div></div>
+      <div class="filters">
+        <label class="search"><span>Search</span><input id="search" type="search" placeholder="Area, home or keyword…"></label>
+        <label><span>Location</span><select id="location"><option value="">All locations</option></select></label>
+        <label><span>Property type</span><select id="type"><option value="">All property types</option></select></label>
+        <label><span>Tenure</span><select id="tenure"><option value="">Any tenure</option></select></label>
+        <label><span>Price range</span><select id="price"><option value="">Any price</option><option value="0-500000">Below RM500k</option><option value="500000-1000000">RM500k–RM1m</option><option value="1000000-Infinity">Above RM1m</option></select></label>
+      </div>
+    </section>
+
+    <section class="collection" aria-labelledby="collection-title">
+      <div class="section-heading"><div><p class="eyebrow">CURRENTLY AVAILABLE</p><h2 id="collection-title">Homes worth discovering</h2></div><span id="count" aria-live="polite"></span></div>
+      <div id="grid" class="grid" aria-live="polite"><div class="state"><span class="spinner"></span>Gathering the collection…</div></div>
+      <button id="more" class="more" hidden>View more properties</button>
+    </section>
+
+    <section class="contact" aria-labelledby="contact-title">
+      <div><p class="eyebrow">PERSONAL GUIDANCE</p><h2 id="contact-title">Not sure where to begin?</h2><p>Tell me what home means to you. I’ll help you find a property that fits your plans, pace and priorities.</p></div>
+      <div class="contact-card"><span class="contact-avatar" aria-hidden="true">TX</span><div><small>YOUR MELAKA PROPERTY AGENT</small><strong>Tong Xen · REN 51905</strong></div><a href="https://wa.me/60166286918" target="_blank" rel="noopener">Chat on WhatsApp <span aria-hidden="true">↗</span></a></div>
+    </section>
   </main>
-  <dialog id="dialog"><button class="close" aria-label="Close">×</button><div id="detail"></div></dialog>
-  <script src="landing.js?v=1"></script>
-</body></html>
+
+  <footer><a class="brand footer-brand" href="#properties"><span class="brand-mark">TX</span><span><strong>Tong Xen Property</strong><small>Homes with heart · Melaka</small></span></a><p>Thoughtful property guidance, rooted in Melaka.</p><p>© <span id="year"></span> Tong Xen Property · REN 51905</p></footer>
+
+  <dialog id="dialog" aria-label="Property details"><button class="close" aria-label="Close property details">×</button><div id="detail"></div></dialog>
+  <script src="landing.js?v=2"></script>
+</body>
+</html>

@@ -46,7 +46,7 @@ PUBLIC_STATIC_FILES={
     '/manifest.webmanifest':'manifest.webmanifest',
     '/icons/icon-source.jpg':'icons/icon-source.jpg',
 }
-PUBLIC_LISTING_FIELDS=('title','location','propertyType','propertySubtype','tenure','lotType','deal','price',
+PUBLIC_LISTING_FIELDS=('title','location','propertyType','propertySubtype','tenure','leaseYears','leaseExpiry','lotType','deal','price',
                        'landSize','builtUp','bedrooms','bathrooms','carParks','furnishing','renovation',
                        'titleType','landTitle','bumiLot','facing')
 _public_catalog_cache={}

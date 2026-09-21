@@ -46,6 +46,20 @@ class PublicCatalogTests(unittest.TestCase):
         self.assertEqual(result['photos'],[data,IMAGE])
         self.assertEqual(server._safe_public_listing(row)['photos'],[IMAGE])
 
+    def test_all_structured_fields_are_returned_including_false_boolean(self):
+        values={field:f'value-{field}' for field in server.PUBLIC_LISTING_FIELDS}
+        values.update({'price':680000,'leaseYears':99,'leaseExpiry':2098,'bedrooms':4,
+                       'bathrooms':3,'carParks':2,'bumiLot':False})
+        row={'id':LISTING,'created_at':'2026-09-21T12:00:00Z',**values}
+        with patch.object(server,'_supabase_request',return_value=[row]) as request:
+            listing=server.get_public_catalog(AGENT,24)['listings'][0]
+        for field,value in values.items():
+            with self.subTest(field=field):self.assertEqual(listing[field],value)
+        self.assertIs(listing['bumiLot'],False)
+        path=request.call_args.args[0]
+        self.assertIn('leaseYears%3Alisting->leaseYears',path)
+        self.assertIn('leaseExpiry%3Alisting->leaseExpiry',path)
+
     def test_empty_catalog_and_new_listing_visible_after_cache_expiry(self):
         with patch.object(server,'_supabase_request',side_effect=[[],[{'id':LISTING,'created_at':'2026-09-21T12:00:00Z'}]]):
             self.assertEqual(server.get_public_catalog(AGENT,24)['listings'],[])
