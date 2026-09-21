@@ -11,6 +11,39 @@ python3 server.py
 
 Open `http://localhost:8080`.
 
+## Server-rendered public catalog
+
+The new customer page is available at
+`/landing.html?agent=AGENT_UUID`. It calls only the same-origin, server-side
+`GET /api/public/catalog` and `GET /api/public/catalog/:listing_id` routes; it
+does not load the Supabase client or receive a Supabase key. The original
+`catalog.html` remains unchanged for parallel verification.
+
+### Deploy
+
+1. In Supabase SQL Editor, run
+   `supabase/migrations/202609210001_public_catalog_index.sql`. The migration is
+   idempotent and adds the `(owner_id, created_at desc, id)` pagination index.
+2. Ensure the web service has the server-only `SUPABASE_SECRET_KEY` (or
+   `SUPABASE_SERVICE_ROLE_KEY`) and deploy the repository. Do not configure the
+   service-role key in static hosting or browser JavaScript.
+3. Open `/landing.html?agent=<a real auth user UUID>`. Verify the first page has
+   at most 24 cards, **Load more** advances without duplicates, filters work,
+   and opening a card loads its gallery.
+4. Publish a new listing using the existing admin workflow. Verify it appears
+   within 30 seconds (the list's bounded application cache lifetime), while a
+   different agent UUID cannot retrieve it.
+5. In browser developer tools, confirm requests go only to `/api/public/...`,
+   responses contain no `owner_id`, `rawText`, private paths, or credentials,
+   and list responses contain no base64 images or full photo arrays.
+
+The list route uses keyset/cursor pagination and a 24-item hard limit. Database
+calls time out after eight seconds and browser calls after ten. Public list
+responses may be cached for 15 seconds (with 15 seconds stale revalidation);
+listing details are not cacheable. Only HTTPS objects in the public
+`listing-images` bucket are returned, except that legacy `data:image` content is
+accepted for a single detail response.
+
 ## WhatsApp ingestion (Phase 1)
 
 Ingestion is off by default. To deploy it safely:

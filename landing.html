@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#17352d"><title>Property Collection</title>
+  <link rel="stylesheet" href="landing.css?v=1">
+</head>
+<body>
+  <header class="hero"><nav><a class="brand" href="#properties"><span>PA</span><b>Property Advisor<small>Curated homes &amp; investments</small></b></a><a class="whatsapp" href="https://wa.me/60166286918" target="_blank" rel="noopener">WhatsApp agent</a></nav><div class="intro"><p>PRIVATE PROPERTY COLLECTION</p><h1>Find your next<br><em>place to belong.</em></h1><p>Explore current homes, land and investment opportunities. Contact the agent directly when one feels right.</p></div></header>
+  <main id="properties"><section class="filters" aria-label="Property filters"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search location or property…"></label><select id="location"><option value="">All locations</option></select><select id="type"><option value="">All property types</option></select><select id="tenure"><option value="">Any tenure</option></select><select id="price"><option value="">Any price</option><option value="0-500000">Below RM500k</option><option value="500000-1000000">RM500k–1m</option><option value="1000000-Infinity">Above RM1m</option></select></section>
+    <div class="heading"><div><p>AVAILABLE NOW</p><h2>Properties</h2></div><span id="count"></span></div>
+    <section id="grid" class="grid" aria-live="polite"><div class="state"><span class="spinner"></span>Loading properties…</div></section>
+    <button id="more" class="more" hidden>Load more</button>
+  </main>
+  <dialog id="dialog"><button class="close" aria-label="Close">×</button><div id="detail"></div></dialog>
+  <script src="landing.js?v=1"></script>
+</body></html>
