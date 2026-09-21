@@ -1,6 +1,14 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
 const {image,normalizeListing,normalizeCatalogRows}=require('../catalog-data.js');
+
+test('public catalog query uses flattened fields instead of selecting listing JSON',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'..','catalog.js'),'utf8');
+  assert.match(source,/const catalogSelect=\['id','created_at',\.\.\.catalogFields\]\.join\(','\)/);
+  assert.doesNotMatch(source,/select=id,listing,created_at/);
+});
 
 test('normalizes current published records and public HTTPS photos',()=>{
   const [listing]=normalizeCatalogRows([{id:'new-1',created_at:'2026-09-18',listing:{title:'Home',location:'Bachang',price:'450000',photos:['https://cdn.example/home.jpg']}}]);
