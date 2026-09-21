@@ -14,10 +14,12 @@ const normalizedSubtype=v=>v==='Single Storey'?'1 Storey':v==='Double Storey'?'2
 const subtype=x=>x.lotType==='Corner Lot'?'Corner Lot':normalizedSubtype(x.propertySubtype||x.subtype||x.storeys||'');
 const usable=v=>v&&v!=='N/A'&&v!=='Not Specified'&&v!=='Not Applicable';
 const preferredSize=x=>usable(x.landSize)?['Land size',x.landSize]:usable(x.builtUp)?['Built-up',x.builtUp]:null;
+const publicListingFields=['title','location','propertyType','propertySubtype','subtype','storeys','lotType','price','deal','tenure','bedrooms','bathrooms','landSize','builtUp','carParks','furnishing','renovation'];
+const publicListingSelect=['id','created_at',...publicListingFields.map(key=>`${key}:listing->${key}`),'cover:listing->photos->0','photo:listing->photo'].join(',');
 async function loadAgentListings(owner){
   const rows=[],pageSize=100;
   for(let offset=0;;offset+=pageSize){
-    const path=`/rest/v1/team_listings?owner_id=eq.${encodeURIComponent(owner)}&select=id,listing,created_at&order=created_at.desc&limit=${pageSize}&offset=${offset}`;
+    const path=`/rest/v1/team_listings?owner_id=eq.${encodeURIComponent(owner)}&select=${encodeURIComponent(publicListingSelect)}&order=created_at.desc&limit=${pageSize}&offset=${offset}`;
     const r=await fetch(`${SUPABASE_URL}${path}`,{cache:'no-store',headers:{apikey:SUPABASE_KEY}});
     if(!r.ok)throw Error('catalog_request_failed');
     let page;
@@ -29,12 +31,12 @@ async function loadAgentListings(owner){
   return CatalogData.normalizeCatalogRows(rows,category=>console.warn(category)).map(row=>({...row,_summary:true}));
 }
 async function loadListingDetail(id){
-  const path=`/rest/v1/team_listings?id=eq.${encodeURIComponent(id)}&select=id,listing,created_at&limit=1`;
+  const path=`/rest/v1/team_listings?id=eq.${encodeURIComponent(id)}&select=${encodeURIComponent(publicListingSelect)}&limit=1`;
   const r=await fetch(`${SUPABASE_URL}${path}`,{cache:'no-store',headers:{apikey:SUPABASE_KEY}});
   if(!r.ok)throw Error('listing unavailable');
   const [row]=await r.json();
   if(!row)throw Error('listing unavailable');
-  const listing=CatalogData.normalizeListing(row.listing,{id:row.id,created_at:row.created_at});
+  const [listing]=CatalogData.normalizeCatalogRows([row]);
   if(!listing)throw Error('listing unavailable');
   return listing;
 }

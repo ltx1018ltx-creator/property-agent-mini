@@ -9,6 +9,27 @@ test('normalizes current published records and public HTTPS photos',()=>{
   assert.deepEqual(listing.photos,['https://cdn.example/home.jpg']);
 });
 
+test('normalizes the real flattened public catalog response shape',()=>{
+  const [listing]=normalizeCatalogRows([{
+    id:'public-1',
+    created_at:'2026-09-20T12:00:00Z',
+    title:'Taman home',
+    location:'Ayer Keroh',
+    propertyType:'Terrace House',
+    propertySubtype:'2 Storey',
+    price:'680000',
+    cover:'https://cdn.example/cover.jpg',
+    photo:'https://cdn.example/fallback.jpg'
+  }]);
+  assert.deepEqual(listing,{
+    id:'public-1',_createdAt:'2026-09-20T12:00:00Z',
+    photos:['https://cdn.example/cover.jpg','https://cdn.example/fallback.jpg'],
+    title:'Taman home',location:'Ayer Keroh',propertyType:'Terrace House',propertySubtype:'2 Storey',
+    subtype:'',storeys:'',lotType:'',deal:'',tenure:'',landSize:'',builtUp:'',carParks:'',furnishing:'',renovation:'',
+    price:680000,bedrooms:null,bathrooms:null
+  });
+});
+
 test('supports legacy photo and data image records',()=>{
   const listing=normalizeListing({id:'legacy-1',photo:'data:image/jpeg;base64,YWJjZA==',storeys:'Double Storey'});
   assert.deepEqual(listing.photos,['data:image/jpeg;base64,YWJjZA==']);

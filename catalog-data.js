@@ -34,9 +34,11 @@
     if(!Array.isArray(rows))return [];
     const listings=[];
     rows.forEach(row=>{
-      const listing=row&&typeof row==='object'&&!Array.isArray(row)
-        ?normalizeListing(row.listing,{id:row.id,created_at:row.created_at})
-        :null;
+      const validRow=row&&typeof row==='object'&&!Array.isArray(row);
+      const value=validRow&&row.listing&&typeof row.listing==='object'&&!Array.isArray(row.listing)
+        ?row.listing
+        :validRow&&!Object.prototype.hasOwnProperty.call(row,'listing')?row:null;
+      const listing=normalizeListing(value,{id:row?.id,created_at:row?.created_at});
       if(listing)listings.push(listing);else onInvalid('invalid_listing');
     });
     return listings;
