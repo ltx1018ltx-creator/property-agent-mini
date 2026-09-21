@@ -23,6 +23,29 @@ WHATSAPP_MEDIA_BUCKET='whatsapp-ingestion'
 LISTING_IMAGE_BUCKET='listing-images'
 PUBLIC_CATALOG_TIMEOUT_SECONDS=8
 PUBLIC_CATALOG_CACHE_SECONDS=30
+PUBLIC_STATIC_FILES={
+    '/':'index.html',
+    '/index.html':'index.html',
+    '/catalog.html':'catalog.html',
+    '/landing.html':'landing.html',
+    '/share.html':'share.html',
+    '/app.js':'app.js',
+    '/catalog-data.js':'catalog-data.js',
+    '/catalog-filters.js':'catalog-filters.js',
+    '/catalog.js':'catalog.js',
+    '/landing.js':'landing.js',
+    '/share.js':'share.js',
+    '/supabase.js':'supabase.js',
+    '/sw.js':'sw.js',
+    '/cases.css':'cases.css',
+    '/catalog.css':'catalog.css',
+    '/landing.css':'landing.css',
+    '/photos.css':'photos.css',
+    '/share.css':'share.css',
+    '/styles.css':'styles.css',
+    '/manifest.webmanifest':'manifest.webmanifest',
+    '/icons/icon-source.jpg':'icons/icon-source.jpg',
+}
 PUBLIC_LISTING_FIELDS=('title','location','propertyType','propertySubtype','tenure','lotType','deal','price',
                        'landSize','builtUp','bedrooms','bathrooms','carParks','furnishing','renovation',
                        'titleType','landTitle','bumiLot','facing')
@@ -670,8 +693,26 @@ class Handler(SimpleHTTPRequestHandler):
             return
         super().log_request(code,size)
     def end_headers(self):
-        if self.path.endswith(('.html','.js','.css','/')):self.send_header('Cache-Control','no-cache, no-store, must-revalidate')
+        if urlsplit(self.path).path.endswith(('.html','.js','.css','/')):self.send_header('Cache-Control','no-cache, no-store, must-revalidate')
         super().end_headers()
+    def serve_public_file(self,path,head_only=False):
+        """Serve only explicitly public repository assets, never arbitrary files."""
+        relative=PUBLIC_STATIC_FILES.get(path)
+        if relative is None:return self.send_error(404)
+        try:
+            candidate=(ROOT/relative).resolve(strict=True)
+            candidate.relative_to(ROOT)
+            if not candidate.is_file():raise OSError()
+            content=candidate.read_bytes()
+        except (OSError,ValueError):return self.send_error(404)
+        content_type=self.guess_type(str(candidate))
+        self.send_response(200)
+        self.send_header('Content-Type',content_type)
+        self.send_header('Content-Length',str(len(content)))
+        self.end_headers()
+        if not head_only:self.wfile.write(content)
+    def do_HEAD(self):
+        return self.serve_public_file(urlsplit(self.path).path,head_only=True)
     def reply(self,status,payload,cache_control='no-store'):
         body=json.dumps(payload).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control',cache_control);self.end_headers();self.wfile.write(body)
     def reply_text(self,status,payload):
@@ -1090,7 +1131,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith('/api/shares/'):
             sid=self.path.split('/')[-1].split('?')[0];item=load().get(sid)
             return self.reply(200,item) if item else self.reply(404,{'error':'not found'})
-        super().do_GET()
+        return self.serve_public_file(parsed.path)
     def do_PATCH(self):
         match=re.fullmatch(r'/api/admin/listing-submission-drafts/([^/]+)',urlsplit(self.path).path)
         if not match:return self.send_error(404)
