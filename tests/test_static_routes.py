@@ -29,10 +29,11 @@ class StaticRouteTests(unittest.TestCase):
         status,headers,body=self.request('/landing.html')
         self.assertEqual(status,200)
         self.assertTrue(headers['Content-Type'].startswith('text/html'))
-        self.assertIn(b'<script src="landing.js?v=2">',body)
+        self.assertIn(b'<script src="landing-filters.js?v=1">',body)
+        self.assertIn(b'<script src="landing.js?v=3">',body)
 
     def test_landing_assets_have_expected_content_types(self):
-        for path,content_type in (('/landing.js','text/javascript'),('/landing.css','text/css')):
+        for path,content_type in (('/landing.js','text/javascript'),('/landing-filters.js','text/javascript'),('/landing.css','text/css')):
             with self.subTest(path=path):
                 status,headers,body=self.request(path)
                 self.assertEqual(status,200)
@@ -45,7 +46,7 @@ class StaticRouteTests(unittest.TestCase):
         self.assertEqual(status,200)
         self.assertTrue(headers['Content-Type'].startswith('text/html'))
         self.assertEqual(queried,plain)
-        self.assertEqual(self.request('/landing.js?v=2')[0],200)
+        self.assertEqual(self.request('/landing.js?v=3')[0],200)
 
     def test_existing_public_pages_and_assets_remain_available(self):
         for path in ('/','/index.html','/catalog.html','/share.html','/app.js','/sw.js',

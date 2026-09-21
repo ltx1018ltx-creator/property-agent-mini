@@ -34,6 +34,7 @@ PUBLIC_STATIC_FILES={
     '/catalog-filters.js':'catalog-filters.js',
     '/catalog.js':'catalog.js',
     '/landing.js':'landing.js',
+    '/landing-filters.js':'landing-filters.js',
     '/share.js':'share.js',
     '/supabase.js':'supabase.js',
     '/sw.js':'sw.js',
