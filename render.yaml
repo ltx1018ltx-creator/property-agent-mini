@@ -21,10 +21,19 @@ services:
         sync: false
   - type: web
     name: tong-xen-property
-    runtime: static
-    buildCommand: mkdir -p public && cp catalog.html catalog.css catalog.js supabase.js public/
-    staticPublishPath: ./public
-    routes:
-      - type: rewrite
-        source: /
-        destination: /catalog.html
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python3 server.py
+    healthCheckPath: /landing.html
+    envVars:
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SITE_URL
+        value: https://tong-xen-property.onrender.com
+      - key: AI_DRAFT_ENABLED
+        value: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
