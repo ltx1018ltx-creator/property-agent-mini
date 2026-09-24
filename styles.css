@@ -111,6 +111,8 @@ dialog h3{margin:0 0 5px}
 .match-row>div{min-width:0;flex:1}
 .match-row b,.match-row small{display:block}
 .match-row small{color:var(--muted);margin-top:3px}
+.member-profile{margin-top:18px}.member-profile summary{cursor:pointer;padding:10px 0}.member-profile form{margin-top:12px}.agent-item .info{min-width:0;overflow-wrap:anywhere}.agent-item>button{min-height:44px;flex-shrink:0}
+@media(max-width:600px){.topbar{height:auto;min-height:78px;flex-wrap:wrap;gap:10px}.topbar .sync-wrap{width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-end}.agent-item{flex-wrap:wrap}.agent-item>.info{flex:1;min-width:160px}.agent-item>button{margin-left:auto}}
 .match-score{font-size:11px;color:#277154}
 .timeline-compose{display:flex;gap:7px}
 .timeline-compose input{padding:10px}

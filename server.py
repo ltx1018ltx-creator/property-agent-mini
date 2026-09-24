@@ -1029,15 +1029,9 @@ class Handler(SimpleHTTPRequestHandler):
             item=json.loads(self.rfile.read(size));sid=secrets.token_urlsafe(8);data=load();data[sid]=item;save(data);self.reply(201,{'id':sid})
         except Exception:return self.reply(400,{'error':'invalid listing'})
     def do_PUT(self):
-        if self.path!='/api/state':return self.send_error(404)
-        try:
-            size=int(self.headers.get('Content-Length','0'))
-            if size>55_000_000:return self.reply(413,{'error':'too large'})
-            item=json.loads(self.rfile.read(size))
-            if not isinstance(item,dict) or not all(k in item for k in ('leads','listings','cases')):raise ValueError()
-            tmp=STATE.with_suffix('.tmp');tmp.write_text(json.dumps(item,separators=(',',':')));tmp.replace(STATE)
-            self.reply(200,{'ok':True})
-        except Exception:return self.reply(400,{'error':'invalid state'})
+        if urlsplit(self.path).path=='/api/state':
+            return self.reply(410,{'error':'Use your authenticated private workspace'})
+        return self.send_error(404)
     def do_GET(self):
         parsed=urlsplit(self.path)
         # Public assets must be dispatched before the API router.  In
@@ -1132,8 +1126,7 @@ class Handler(SimpleHTTPRequestHandler):
             sid=self.path.split('/')[-1].split('?')[0];item=load_imports().get(sid)
             return self.reply(200,item) if item else self.reply(404,{'error':'not found'})
         if self.path.split('?')[0]=='/api/state':
-            try:return self.reply(200,json.loads(STATE.read_text()))
-            except Exception:return self.reply(200,{'updatedAt':0,'leads':[],'listings':[],'cases':[]})
+            return self.reply(410,{'error':'Use your authenticated private workspace'})
         if self.path.startswith('/api/shares/'):
             sid=self.path.split('/')[-1].split('?')[0];item=load().get(sid)
             return self.reply(200,item) if item else self.reply(404,{'error':'not found'})

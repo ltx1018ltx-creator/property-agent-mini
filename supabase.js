@@ -25,7 +25,6 @@ const authStore={
 async function refreshSession(){const s=authStore.get();if(!s?.refresh_token)return null;try{const n=await sbJson('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:s.refresh_token}),_retried:true});authStore.set(n);return n}catch{authStore.set(null);return null}}
 async function validSession(){let s=authStore.get();if(!s)return null;try{const exp=JSON.parse(atob(s.access_token.split('.')[1])).exp*1000;if(exp<Date.now()+60000)s=await refreshSession()}catch{s=await refreshSession()}return s}
 async function signIn(email,password){const s=await sbJson('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})});authStore.set(s);return s}
-async function signUp(email,password,name){return sbJson('/auth/v1/signup',{method:'POST',body:JSON.stringify({email,password,data:{name}})})}
 async function inviteSessionFromUrl(){
  const p=new URLSearchParams(location.hash.slice(1));if(p.get('type')!=='invite'||!p.get('access_token'))return null;
  const access_token=p.get('access_token'),refresh_token=p.get('refresh_token'),user=await sbJson('/auth/v1/user',{token:access_token});

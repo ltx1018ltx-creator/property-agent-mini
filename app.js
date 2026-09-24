@@ -78,7 +78,7 @@ window.completeFollowUp=id=>{const x=db.leads.find(v=>v.id===id);if(!x)return;x.
 function canonicalPropertyType(v){return ({'Terrace / Link House':'Terrace House','Semi-D':'Semi-D / Cluster House','Semi-Detached House':'Semi-D / Cluster House','Cluster House':'Semi-D / Cluster House','Condominium':'Condominium / Serviced Residence','Serviced Residence':'Condominium / Serviced Residence','Service Residence':'Condominium / Serviced Residence','SOHO / Studio':'Condominium / Serviced Residence','SOHO':'Condominium / Serviced Residence','Studio':'Condominium / Serviced Residence','Apartment':'Apartment / Flat','Flat':'Apartment / Flat','Bungalow / Detached House':'Bungalow','Detached House':'Bungalow','Retail Lot':'Shoplot','Office':'Shoplot','Detached Factory':'Warehouse / Factory'})[v]||v}
 function propertySubtypeOf(x){return normalizedSubtype(x?.propertySubtype||x?.storeys||'')}
 function filterSubtypeOf(x){return x?.lotType==='Corner Lot'?'Corner Lot':propertySubtypeOf(x)}
-function canManageListing(x){return Boolean(x&&(isAdmin||x._ownerId===session?.user?.id))}
+function canManageListing(x){return Boolean(x&&x._ownerId===session?.user?.id)}
 function preferredListingSize(x){return x?.landSize?['Land size',x.landSize]:x?.builtUp?['Built-up',x.builtUp]:null}
 function listingHTML(x){const type=canonicalPropertyType(x.propertyType)||x.title||'Property',location=x.location||'Location not specified',details=[propertySubtypeOf(x),type,x.tenure,x.lotType].filter(v=>v&&v!=='Not Applicable'&&v!=='Not Specified').join(' · '),photos=x.photos?.length?x.photos:(x.photo?[x.photo]:[]),id=encodeURIComponent(String(x.id)),checked=[...selectedListings].some(v=>String(v)===String(x.id)),size=preferredListingSize(x),facts=[x.bedrooms&&`${x.bedrooms} Beds`,x.bathrooms&&`${x.bathrooms} Baths`,size&&`${size[1]} sqft`].filter(Boolean).join(' · '),manage=canManageListing(x);return `<article class="listing-card clickable" onclick="viewListing(decodeURIComponent('${id}'))"><label class="listing-check" onclick="event.stopPropagation()"><input type="checkbox" ${checked?'checked':''} onchange="toggleListing(decodeURIComponent('${id}'),this.checked)"></label>${photos[0]?`<div class="listing-photo-wrap"><img class="listing-thumb" src="${photos[0]}" alt="${esc(type)}" loading="lazy" decoding="async">${photos.length>1?`<span>+${photos.length-1}</span>`:''}</div>`:'<span class="listing-placeholder">⌂</span>'}<div class="listing-card-body"><span class="listing-deal">${esc(x.deal||'Listing')}</span><b class="listing-price">${money(x.price)}</b><h3>${esc(location)}</h3><p>${esc(details)}</p>${facts?`<small>${esc(facts)}</small>`:''}<div class="listing-card-actions">${manage?`<button onclick="event.stopPropagation();editListing(decodeURIComponent('${id}'))">Edit</button>`:''}<button onclick="event.stopPropagation();shareListing(decodeURIComponent('${id}'))">Share</button>${manage?`<button class="delete-listing" onclick="event.stopPropagation();deleteItem('listings',decodeURIComponent('${id}'))">Delete</button>`:''}</div></div></article>`}
 function filterLeads(){const q=($('#leadSearch')?.value||'').toLowerCase(),a=db.leads.filter(x=>JSON.stringify(x).toLowerCase().includes(q));$('#leadList').innerHTML=a.length?a.map(leadHTML).join(''):'<div class="empty">No leads yet.</div>'}
@@ -213,12 +213,22 @@ $('#addCaseBtn').onclick=()=>{const f=$('#caseForm');f.reset();f.elements.update
 $('#saveCase').onclick=e=>{e.preventDefault();const f=$('#caseForm');if(!f.reportValidity())return;const x=Object.fromEntries(new FormData(f));if(x.id){const i=db.cases.findIndex(c=>String(c.id)===x.id);db.cases[i]={...db.cases[i],...x,id:Number(x.id)}}else db.cases.unshift({...x,id:Date.now()});$('#caseDialog').close();save();toast('Case updated')};
 window.editCase=id=>{const x=db.cases.find(c=>c.id===id),f=$('#caseForm');Object.entries(x).forEach(([k,v])=>{if(f.elements[k])f.elements[k].value=v});$('#caseDialogTitle').textContent='Update Case';$('#caseDialog').showModal()};
 $$('[data-case-filter]').forEach(b=>b.onclick=()=>{$$('[data-case-filter]').forEach(x=>x.classList.toggle('active',x===b));caseFilter=b.dataset.caseFilter;renderCases()});
+function memberContact(){
+ const own=session?.user.id==='6c8e4545-3e89-40e2-b5a9-7a18475641d7';
+ return {name:session?.user.user_metadata?.name||session?.user.email.split('@')[0]||'',ren:own?'REN 51905':'',phone:own?'60166286918':'',agency:own?'TheRoofRealtySdnBhd E(1)1605/5 | 03-79837798':'',...(db.profile||{})};
+}
+function fillMemberProfile(){const profile=memberContact();for(const [key,value] of Object.entries(profile)){const input=$('#memberProfileForm').elements[key];if(input)input.value=value}}
+$('#memberProfileForm').onsubmit=e=>{e.preventDefault();if(!session)return;db.profile=Object.fromEntries(new FormData(e.target));save();toast('Your contact details saved')};
+function copySignature(suffix){
+ const profile=memberContact();let phone=profile.phone.replace(/\D/g,'');if(phone.startsWith('0'))phone='6'+phone;
+ return [profile.name+(profile.ren?' ['+profile.ren+']':''),phone?'www.wasap.my/'+phone+'/'+suffix:'',profile.agency].filter(Boolean).join('\n');
+}
 function generateCopy(){
  const deal=$('#cwDeal').value,type=$('#cwType').value.trim(),loc=$('#cwLocation').value.trim(),price=Number($('#cwPrice').value),features=$('#cwFeatures').value.split('\n').map(x=>x.trim()).filter(Boolean),note=$('#cwNote').value.trim();
  if(!type||!loc||!price)return toast('Type、地点和价格先填好');
  const rent=deal==='For Rent', suffix=(loc.split(',')[0]+' '+type+' '+(rent?price:Math.round(price/1000)+'k')).toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,45);
  const icon=rent?'🔑':'🏡', action=rent?'出租':'出售';
- const text=`${icon} ${deal.toUpperCase()}｜${loc} ${type}\n\n正在寻找${rent?'舒适住家／合适单位':'自住或投资房产'}的朋友，可以看看这一间👇\n\n📍 ${loc}\n🏠 ${type}\n\nProperty Details：\n${features.map(x=>'✅ '+x).join('\n')}${note?'\n\n💡 '+note:''}\n\n💰 ${rent?'Rental':'Selling Price'}：${money(price)}${rent?' / month':''}\n\n有兴趣索取完整资料、照片或预约看房，欢迎 PM / WhatsApp 联系我。\n\n🧒 Tong Xen [REN 51905]\n📲 www.wasap.my/60166286918/${suffix}\n☎️ 0166286918\n\n#TheRoofRealtySdnBhd E(1)1605/5 | 03-79837798\n\n#MelakaProperty #马六甲房地产 #${type.replace(/\s/g,'')} #房产${action}`;
+ const text=`${icon} ${deal.toUpperCase()}｜${loc} ${type}\n\n正在寻找${rent?'舒适住家／合适单位':'自住或投资房产'}的朋友，可以看看这一间👇\n\n📍 ${loc}\n🏠 ${type}\n\nProperty Details：\n${features.map(x=>'✅ '+x).join('\n')}${note?'\n\n💡 '+note:''}\n\n💰 ${rent?'Rental':'Selling Price'}：${money(price)}${rent?' / month':''}\n\n有兴趣索取完整资料、照片或预约看房，欢迎 PM / WhatsApp 联系我。\n\n${copySignature(suffix)}\n\n#MelakaProperty #马六甲房地产 #${type.replace(/\s/g,'')} #房产${action}`;
  $('#copyOutput').textContent=text;$('#copyOutputWrap').classList.remove('hidden');$('#copyOutputWrap').scrollIntoView({behavior:'smooth'});
 }
 $('#generateBtn').onclick=generateCopy;
@@ -245,12 +255,13 @@ async function loadTeamListings(){
  }
  return rows;
 }
-async function loadCloud(){try{
- const statePath=`/rest/v1/agent_states?user_id=eq.${session.user.id}&select=updatedAt:data->updatedAt,leads:data->leads,cases:data->cases`;
+async function loadCloud(){const activeUser=session?.user.id;if(!activeUser)return;try{
+ const statePath=`/rest/v1/agent_states?user_id=eq.${session.user.id}&select=updatedAt:data->updatedAt,leads:data->leads,cases:data->cases,profile:data->profile`;
  const [states,rows]=await Promise.all([sbJson(statePath,{token:session.access_token}),loadTeamListings()]);
- const remote=states[0]&&{updatedAt:states[0].updatedAt||0,leads:states[0].leads||[],cases:states[0].cases||[],listings:[]};
+ if(session?.user.id!==activeUser)return;
+ const remote=states[0]&&{updatedAt:states[0].updatedAt||0,leads:states[0].leads||[],cases:states[0].cases||[],profile:states[0].profile||{},listings:[]};
  if(remote&&remote.updatedAt>=(db.updatedAt||0))db=remote;else if(!states.length)await syncCloud(true);
- db.cases||=[];db.leads||=[];db.listings=rows.map(r=>({...r.listing,id:r.id,_ownerId:r.owner_id,_createdAt:r.created_at}));cacheLocal();fillListingOptions();setSync('Cloud synced');render();
+ db.cases||=[];db.leads||=[];db.listings=rows.map(r=>({...r.listing,id:r.id,_ownerId:r.owner_id,_createdAt:r.created_at}));cacheLocal();fillListingOptions();fillMemberProfile();setSync('Cloud synced');render();
  }catch(e){cloudError(e);render()}}
 async function claimImport(){
  const q=new URLSearchParams(location.search),token=q.get('claim');if(!token)return;
@@ -265,8 +276,21 @@ async function claimImport(){
  }catch(e){toast('一次性导入链接无效或已经使用')}
 }
 function adminDate(v){return v?new Intl.DateTimeFormat('en-MY',{dateStyle:'medium'}).format(new Date(v)):'Never'}
-function renderAdminAgents(){const q=($('#adminSearch').value||'').toLowerCase(),rows=adminAgents.filter(x=>`${x.name} ${x.email}`.toLowerCase().includes(q));$('#adminAgentList').innerHTML=rows.length?rows.map(x=>`<article class="item agent-item" onclick="viewAdminAgent('${x.user_id}')"><span class="avatar">${esc((x.name||x.email||'?')[0]).toUpperCase()}</span><div class="info"><b>${esc(x.name||'Unnamed agent')}</b><small>${esc(x.email)}</small><small>Joined ${adminDate(x.created_at)} · Last login ${adminDate(x.last_sign_in_at)}</small><div class="agent-counts"><span>${x.lead_count} Leads</span><span>${x.listing_count} Listings</span><span>${x.case_count} Cases</span></div></div><i>›</i></article>`).join(''):'<div class="empty">No matching agents.</div>';const leads=adminAgents.reduce((n,x)=>n+x.lead_count,0),listings=adminAgents.reduce((n,x)=>n+x.listing_count,0);$('#adminSummary').innerHTML=`<article><b>${adminAgents.length}</b><span>Agents</span></article><article><b>${leads}</b><span>Total leads</span></article><article><b>${listings}</b><span>Total listings</span></article>`}
-async function loadAdmin(){try{adminAgents=await sbJson('/rest/v1/rpc/get_admin_agents',{method:'POST',token:session.access_token,body:'{}'});isAdmin=true;$('#adminBtn').classList.remove('hidden');renderAdminAgents();render();await loadDraftInbox();return true}catch(e){isAdmin=false;$('#adminBtn').classList.add('hidden');return false}}
+function renderAdminAgents(){
+ const q=($('#adminSearch').value||'').toLowerCase(),rows=adminAgents.filter(x=>`${x.name} ${x.email}`.toLowerCase().includes(q));
+ $('#adminAgentList').innerHTML=rows.length?rows.map(x=>`<article class="item agent-item"><span class="avatar">${esc((x.name||x.email||'?')[0]).toUpperCase()}</span><div class="info"><b>${esc(x.name||'Unnamed member')}</b><small>${esc(x.email)}</small><small>${x.role==='admin'?'Admin':'Member'} · ${esc(x.status)}${x.invitation_pending?' · Invitation pending':''}</small><small>Joined ${adminDate(x.created_at)} · Last login ${adminDate(x.last_sign_in_at)}</small></div>${x.role!=='admin'?`<button type="button" data-member="${esc(x.user_id)}" data-status="${x.status==='active'?'suspended':'active'}">${x.status==='active'?'Suspend':x.status==='pending'?'Approve':'Reactivate'}</button>`:''}</article>`).join(''):'<div class="empty">No matching members.</div>';
+ $('#adminSummary').innerHTML=`<article><b>${adminAgents.length}</b><span>Accounts</span></article><article><b>${adminAgents.filter(x=>x.status==='active').length}</b><span>Active</span></article><article><b>${adminAgents.filter(x=>x.status!=='active').length}</b><span>Pending / suspended</span></article>`;
+}
+$('#adminAgentList').onclick=async event=>{
+ const button=event.target.closest('button[data-member]');if(!button)return;
+ const member=adminAgents.find(x=>x.user_id===button.dataset.member);if(!member)return;
+ const status=button.dataset.status;
+ if(!confirm(`${status==='suspended'?'Suspend access for':'Activate access for'} ${member.name||member.email}?`))return;
+ button.disabled=true;
+ try{await sbJson('/rest/v1/rpc/set_workspace_member_status',{method:'POST',token:session.access_token,body:JSON.stringify({target_user_id:member.user_id,new_status:status})});await loadAdmin();toast('Member access updated')}
+ catch(e){toast(e.message);button.disabled=false}
+};
+async function loadAdmin(){try{adminAgents=await sbJson('/rest/v1/rpc/get_workspace_accounts',{method:'POST',token:session.access_token,body:'{}'});isAdmin=true;$('#adminBtn').classList.remove('hidden');renderAdminAgents();render();await loadDraftInbox();return true}catch(e){isAdmin=false;$('#adminBtn').classList.add('hidden');return false}}
 $('#inviteAgentForm').onsubmit=async e=>{
  e.preventDefault();
  const msg=$('#inviteAgentMessage'),button=e.submitter,email=$('#inviteAgentEmail').value.trim(),name=$('#inviteAgentName').value.trim();
@@ -274,7 +298,7 @@ $('#inviteAgentForm').onsubmit=async e=>{
  try{
   const r=await fetch('/api/admin/invite',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({email,name})});
   const data=await r.json();if(!r.ok)throw Error(data.error||'Invite failed');
-  msg.textContent=`Invite sent to ${email}`;e.target.reset();toast('Agent invite sent');
+  msg.textContent=`Invite sent to ${email}`;e.target.reset();toast('Member invite sent');await loadAdmin();
  }catch(err){msg.textContent=err.message}finally{button.disabled=false}
 };
 async function loadApiKeyStatus(){
@@ -294,9 +318,9 @@ $('#generateApiKeyBtn').onclick=async()=>{
 $('#revokeApiKeyBtn').onclick=async()=>{if(!confirm('Revoke this key? OpenClaw uploads will stop immediately.'))return;try{await sbJson('/rest/v1/rpc/revoke_agent_api_key',{method:'POST',token:session.access_token,body:'{}'});$('#apiKeyReveal').classList.add('hidden');await loadApiKeyStatus();toast('API key revoked')}catch(e){toast(e.message)}};
 $('#copyApiKeyBtn').onclick=async()=>{await navigator.clipboard.writeText($('#apiKeyValue').textContent);toast('API key copied — keep it private')};
 $('#copyInstructionBtn').onclick=async()=>{await navigator.clipboard.writeText($('#openClawInstruction').textContent);toast('Connection instruction copied')};
-function adminRows(items,kind){if(!items?.length)return '<div class="empty">No records.</div>';return items.map(x=>{const title=kind==='leads'?x.name:kind==='listings'?(x.title||x.propertyType):`${x.client||''} · ${x.property||''}`,meta=kind==='leads'?[x.requirement,x.phone,x.preferredLocation,x.followUp].filter(Boolean).join(' · '):kind==='listings'?[x.location,money(x.price),x.deal].filter(Boolean).join(' · '):[x.status,x.updated,x.commission&&`Commission ${money(x.commission)}`].filter(Boolean).join(' · ');return `<div class="admin-readonly-row"><b>${esc(title||'Untitled')}</b><small>${esc(meta)}</small></div>`}).join('')}
-window.viewAdminAgent=async id=>{const agent=adminAgents.find(x=>x.user_id===id);if(!agent)return;$('#adminAgentTitle').textContent=agent.name||'Agent details';$('#adminAgentMeta').textContent=`${agent.email} · Joined ${adminDate(agent.created_at)} · Last login ${adminDate(agent.last_sign_in_at)}`;$('#adminAgentDetails').innerHTML='<div class="empty">Loading records…</div>';$('#adminAgentDialog').showModal();try{const state=await sbJson('/rest/v1/rpc/get_admin_agent_state',{method:'POST',token:session.access_token,body:JSON.stringify({target_user_id:id})});$('#adminAgentDetails').innerHTML=`<section class="admin-detail-section"><h4>Leads (${state.leads?.length||0})</h4>${adminRows(state.leads,'leads')}</section><section class="admin-detail-section"><h4>Listings (${state.listings?.length||0})</h4>${adminRows(state.listings,'listings')}</section><section class="admin-detail-section"><h4>Cases (${state.cases?.length||0})</h4>${adminRows(state.cases,'cases')}</section>`}catch(e){$('#adminAgentDetails').innerHTML='<div class="empty">Unable to load this agent.</div>'}};
-$('#adminBtn').onclick=async()=>{go('admin');await loadAdmin()};$('#refreshAdminBtn').onclick=loadAdmin;$('#adminSearch').oninput=renderAdminAgents;$('#closeAdminAgentDialog').onclick=()=>$('#adminAgentDialog').close();
+
+
+$('#adminBtn').onclick=async()=>{go('admin');await loadAdmin()};$('#refreshAdminBtn').onclick=loadAdmin;$('#adminSearch').oninput=renderAdminAgents;
 const DRAFT_FIELDS=['location','propertyType','propertySubtype','tenure','leaseYears','leaseExpiry','lotType','deal','price','landSize','builtUp','bedrooms','bathrooms','carParks','furnishing','renovation','titleType','landTitle','bumiLot','facing'];
 let draftSubmissions=[];
 const selectedDraftSubmissions=new Set();
@@ -315,14 +339,44 @@ async function reviewDraft(button,status){const card=button.closest('.draft-card
 async function publishDraft(button){const card=button.closest('.draft-card'),submission=draftSubmissions.find(x=>x.id===card.dataset.submission);if(!submission?.draft||!confirm('Publish this approved draft and its stored images to the property website?'))return;button.disabled=true;button.textContent='Publishing…';try{const result=await adminApi(`/api/admin/listing-submission-drafts/${encodeURIComponent(submission.draft.id)}/publish`,{method:'POST',body:'{}'});await Promise.all([loadDraftInbox(),loadCloud()]);toast(result.duplicate?'Listing was already published':'Listing published')}catch(e){button.disabled=false;button.textContent='Publish Listing';toast(e.message)}}
 $('#refreshDraftInbox').onclick=loadDraftInbox;
 $('#mergeDraftSubmissions').onclick=mergeDraftSubmissions;
-async function enterApp(s){session=s;KEY=`agentDaily.v2.${s.user.id}`;db=JSON.parse(localStorage.getItem(KEY)||'null')||{updatedAt:0,leads:[],listings:[],cases:[]};db.cases||=[];db.leads||=[];db.listings||=[];$('#userLabel').textContent=s.user.user_metadata?.name||s.user.email.split('@')[0];$('#authScreen').classList.add('ready');render();await Promise.all([loadCloud(),loadAdmin()]);await claimImport()}
+async function verifyMembership(s){
+ const member=await sbJson('/rest/v1/rpc/get_workspace_membership',{method:'POST',token:s.access_token,body:'{}'});
+ if(member?.status!=='active')throw Error(member?.status==='suspended'?'Your access has been suspended. Contact Tong Xen.':'This workspace is invitation only. Contact Tong Xen for access.');
+ return member;
+}
+function lockWorkspace(message){
+ clearTimeout(syncTimer);session=null;isAdmin=false;adminAgents=[];selectedListings.clear();
+ db={updatedAt:0,leads:[],listings:[],cases:[]};authStore.set(null);
+ $$('dialog[open]').forEach(el=>el.close());
+ $('#adminBtn').classList.add('hidden');$('#adminAgentList').innerHTML='';$('#adminSummary').innerHTML='';
+ $('#draftInbox').innerHTML='';$('#apiKeyValue').textContent='';$('#apiKeyReveal').classList.add('hidden');
+ $('#memberProfileForm').reset();$('#copyOutput').textContent='';$('#copyOutputWrap').classList.add('hidden');$('#userLabel').textContent='';$('#authScreen').classList.remove('ready');$('#authMessage').textContent=message;
+ render();go('dashboard');
+}
+async function enterApp(s){
+ const member=await verifyMembership(s);
+ session=s;isAdmin=member.role==='admin';KEY=`agentDaily.v2.${s.user.id}`;
+ db=JSON.parse(localStorage.getItem(KEY)||'null')||{updatedAt:0,leads:[],listings:[],cases:[]};
+ db.cases||=[];db.leads||=[];db.listings||=[];
+ $('#userLabel').textContent=s.user.user_metadata?.name||s.user.email.split('@')[0];
+ $('#dashboard .hero h2').textContent=`Welcome, ${s.user.user_metadata?.name||s.user.email.split('@')[0]}.`;
+ fillMemberProfile();$('#authScreen').classList.add('ready');render();await Promise.all([loadCloud(),loadAdmin()]);await claimImport();
+}
+let membershipCheckRunning=false;
+async function recheckMembership(){
+ if(!session||membershipCheckRunning)return;membershipCheckRunning=true;const current=session;
+ try{await verifyMembership(current)}catch(e){if(session?.user.id===current.user.id)lockWorkspace(e.message)}
+ finally{membershipCheckRunning=false}
+}
+setInterval(recheckMembership,30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void recheckMembership()});
 $('#authForm').onsubmit=async e=>{e.preventDefault();const msg=$('#authMessage');msg.textContent='Logging in…';try{await enterApp(await signIn($('#authEmail').value.trim(),$('#authPassword').value));msg.textContent=''}catch(err){msg.textContent=err.message}}
-$('#signupBtn').onclick=async()=>{const msg=$('#authMessage'),email=$('#authEmail').value.trim(),password=$('#authPassword').value,name=$('#authName').value.trim();if(!email||password.length<6)return msg.textContent='Email and minimum 6-character password required.';msg.textContent='Creating account…';try{const r=await signUp(email,password,name);if(r.access_token)await enterApp(r);else msg.textContent='Account created. Check your email, then log in.'}catch(err){msg.textContent=err.message}}
+
 let pendingInviteSession=null;
 async function handleInvite(){
  try{
   pendingInviteSession=await inviteSessionFromUrl();if(!pendingInviteSession)return false;
-  $$('#authForm>label,#loginBtn,#signupBtn,#authForm>p:not(#authMessage)').forEach(x=>x.classList.add('hidden'));
+  $$('#authForm>label,#loginBtn,#authForm>p:not(#authMessage)').forEach(x=>x.classList.add('hidden'));
   $('#invitePasswordPanel').classList.remove('hidden');$('#authMessage').textContent='Invitation verified. Choose your password.';
   return true;
  }catch(err){$('#authMessage').textContent=err.message;return false}
@@ -334,5 +388,5 @@ $('#setInvitePasswordBtn').onclick=async()=>{
 };
 $('#logoutBtn').onclick=async()=>{await signOut();location.reload()};
 fillListingOptions();$('#todayLabel').textContent=new Intl.DateTimeFormat('en-MY',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
-(async()=>{if(!await handleInvite()){const s=await validSession();if(s)await enterApp(s)}})();
+(async()=>{try{if(!await handleInvite()){const s=await validSession();if(s)await enterApp(s)}}catch(e){lockWorkspace(e.message)}})();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready).then(importAndroidShare);

@@ -64,5 +64,14 @@ class StaticRouteTests(unittest.TestCase):
                      '/icons/%2e%2e/server.py'):
             with self.subTest(path=path):self.assertEqual(self.request(path)[0],404)
 
+    def test_legacy_shared_private_state_is_retired(self):
+        for method in ('GET','PUT'):
+            for path in ('/api/state','/api/state?cache=1'):
+                with self.subTest(method=method,path=path):
+                    status,_,body=self.request(path,method=method)
+                    self.assertEqual(status,410)
+                    self.assertNotIn(b'"leads"',body)
+                    self.assertNotIn(b'"cases"',body)
+
 
 if __name__=='__main__':unittest.main()
