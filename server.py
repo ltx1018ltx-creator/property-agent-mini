@@ -38,6 +38,7 @@ PUBLIC_STATIC_FILES={
     '/share.js':'share.js',
     '/supabase.js':'supabase.js',
     '/site-analytics.js':'site-analytics.js',
+    '/listing-locations.js':'listing-locations.js',
     '/site-analytics.css':'site-analytics.css',
     '/sw.js':'sw.js',
     '/cases.css':'cases.css',
@@ -49,7 +50,7 @@ PUBLIC_STATIC_FILES={
     '/manifest.webmanifest':'manifest.webmanifest',
     '/icons/icon-source.jpg':'icons/icon-source.jpg',
 }
-PUBLIC_LISTING_FIELDS=('title','location','propertyType','propertySubtype','tenure','leaseYears','leaseExpiry','lotType','deal','price',
+PUBLIC_LISTING_FIELDS=('title','location','locationArea','locationStatus','propertyType','propertySubtype','tenure','leaseYears','leaseExpiry','lotType','deal','price',
                        'landSize','builtUp','bedrooms','bathrooms','carParks','furnishing','renovation',
                        'titleType','landTitle','bumiLot','facing')
 _public_catalog_cache={}
@@ -1166,3 +1167,4 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__=='__main__':
     port=int(os.environ.get('PORT','8080'))
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
+
