@@ -37,6 +37,8 @@ PUBLIC_STATIC_FILES={
     '/landing-filters.js':'landing-filters.js',
     '/share.js':'share.js',
     '/supabase.js':'supabase.js',
+    '/site-analytics.js':'site-analytics.js',
+    '/site-analytics.css':'site-analytics.css',
     '/sw.js':'sw.js',
     '/cases.css':'cases.css',
     '/catalog.css':'catalog.css',

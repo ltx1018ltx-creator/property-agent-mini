@@ -7,7 +7,8 @@
   <title>Property Agent Hub</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-source.jpg">
-  <link rel="stylesheet" href="styles.css?v=41">
+  <link rel="stylesheet" href="styles.css?v=42">
+  <link rel="stylesheet" href="site-analytics.css?v=1">
   <link rel="stylesheet" href="cases.css">
   <link rel="stylesheet" href="photos.css?v=17">
 </head>
@@ -130,6 +131,12 @@
     </section>
 
     <section id="admin" class="page">
+      <details id="siteAnalytics" class="card site-analytics">
+        <summary><strong>Website analytics · 网站访问统计</strong><span>Landing page visits & enquiries</span></summary>
+        <div class="analytics-toolbar"><label>Period <select id="analyticsDays"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label><button type="button" id="refreshAnalytics">Refresh</button><a href="https://mari-property-melaka.txleong1998596286.chatgpt.site/?analytics=off" target="_blank" rel="noopener noreferrer">Browse without counting my visits ↗</a></div>
+        <p class="disclaimer">只统计上线后的活动，不代表真实人数。Visits group activity in one browser tab until 30 minutes of inactivity. WhatsApp clicks do not confirm a message was sent. Blockers and automated traffic can affect totals. Dates use Malaysia time.</p>
+        <p id="analyticsStatus" role="status" aria-live="polite">Open this panel to load your statistics.</p><div id="analyticsReport"></div>
+      </details>
       <div class="section-head title"><div><small class="eyebrow">ACCOUNT ADMIN</small><h2>Members · 成员管理</h2></div><button id="refreshAdminBtn">Refresh</button></div>
       <form id="inviteAgentForm" class="card invite-agent-card">
         <div><small class="eyebrow">NEW TEAM MEMBER</small><h3>Invite Member</h3><p>Invite someone by email. Each member's clients, cases and API key are private; listings are shared.</p></div>
@@ -213,6 +220,6 @@ Send one listing object using fields such as location, propertyType, propertySub
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <dialog id="splitSubmissionDialog" class="admin-dialog"><form id="splitSubmissionForm" class="admin-dialog-body"><button type="button" class="dialog-close" id="closeSplitSubmissionDialog" aria-label="Close">×</button><h3>Split Submission</h3><p class="admin-agent-meta">Select every message and image that belongs to the new property. Unselected items remain in the original.</p><div id="splitSubmissionItems" class="split-items"></div><p id="splitSubmissionError" class="split-error" role="alert"></p><div class="actions"><button type="button" id="cancelSplitSubmission">Cancel</button><button type="submit" class="primary" id="confirmSplitSubmission">Review split</button></div></form></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=4"></script><script src="app.js?v=58"></script>
+  <script src="supabase.js?v=4"></script><script src="app.js?v=59"></script><script src="site-analytics.js?v=1"></script>
 </body>
 </html>
