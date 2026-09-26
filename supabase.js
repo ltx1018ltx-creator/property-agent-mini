@@ -3,7 +3,8 @@ const SUPABASE_KEY='sb_publishable_XN56JH2JPCjbLQYR2ejjDQ_EpP0TaDJ';
 const sbHeaders=(token,extra={})=>({apikey:SUPABASE_KEY,Authorization:`Bearer ${token||SUPABASE_KEY}`,...extra});
 const sbJson=async(path,options={})=>{
   const request=async token=>{
-    const r=await fetch(`${SUPABASE_URL}${path}`,{...options,headers:sbHeaders(token,{'Content-Type':'application/json',...(options.headers||{})})});
+    const {timeoutMs,...fetchOptions}=options;
+    const r=await fetch(`${SUPABASE_URL}${path}`,{...fetchOptions,signal:timeoutMs?AbortSignal.timeout(timeoutMs):options.signal,headers:sbHeaders(token,{'Content-Type':'application/json',...(options.headers||{})})});
     const body=await r.text();let data=null;try{data=body?JSON.parse(body):null}catch{data=body}
     if(!r.ok){const e=Error(data?.msg||data?.message||data?.error_description||data?.hint||`Request failed (${r.status})`);e.status=r.status;throw e}
     return data;
@@ -44,3 +45,4 @@ async function signOut(){
  }catch{}
 }
 async function publishShare(payload){const s=await validSession();if(!s)throw Error('Please log in again');const [row]=await sbJson('/rest/v1/public_shares',{method:'POST',token:s.access_token,headers:{Prefer:'return=representation'},body:JSON.stringify({owner_id:s.user.id,payload})});return row.id}
+

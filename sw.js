@@ -1,4 +1,4 @@
-const C='mari-property-v55',FILES=['./','index.html','styles.css?v=43','site-analytics.css?v=1','cases.css','photos.css?v=17','supabase.js?v=4','app.js?v=60','listing-locations.js?v=1','site-analytics.js?v=1','share.html','share.css?v=19','share.js?v=22','manifest.webmanifest','icons/icon-source.jpg'];
+const C='mari-property-v56',FILES=['./','index.html','styles.css?v=43','site-analytics.css?v=1','cases.css','photos.css?v=17','supabase.js?v=5','app.js?v=61','listing-locations.js?v=2','site-analytics.js?v=1','share.html','share.css?v=19','share.js?v=22','manifest.webmanifest','icons/icon-source.jpg'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)))});
 self.addEventListener('activate',e=>e.waitUntil((async()=>{
  await caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k))));

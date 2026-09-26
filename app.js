@@ -180,8 +180,63 @@ function normalizeImportedListing(x){
 }
 $('#listingPhoto').onchange=async e=>{const files=[...e.target.files];if(files.length>10){e.target.value='';$('#listingPhotoPreview').innerHTML='';$('#listingPhotoPreview').classList.add('hidden');return toast('最多只能选 10 张照片')};const preview=$('#listingPhotoPreview');preview.innerHTML='';if(!files.length)return preview.classList.add('hidden');preview.classList.remove('hidden');for(const file of files){const photo=await compressPhoto(file);preview.insertAdjacentHTML('beforeend',`<img src="${photo}" alt="Listing photo preview">`)}};
 function listingPayload(x){const {_ownerId,_createdAt,id,...payload}=x;return payload}
-async function persistListing(listing){const payload=listingPayload(listing),editing=Boolean(listing.id);const [row]=await sbJson(editing?`/rest/v1/team_listings?id=eq.${encodeURIComponent(listing.id)}`:'/rest/v1/team_listings',{method:editing?'PATCH':'POST',token:session.access_token,headers:{Prefer:'return=representation'},body:JSON.stringify(editing?{listing:payload,updated_at:new Date().toISOString()}:{owner_id:session.user.id,listing:payload})});if(!row)throw Error('Listing was not saved. Refresh and try again.');return {...row.listing,id:row.id,_ownerId:row.owner_id,_createdAt:row.created_at}}
-$('#saveListing').onclick=async e=>{e.preventDefault();const f=$('#listingForm');if(!f.reportValidity())return;const x=Object.fromEntries(new FormData(f));delete x.photoFile;const typedLocation=String(x.location||'').trim();x.location=typedLocation;x.locationMode=x.areaOverride?'manual':'auto';x.locationArea=x.areaOverride||'';delete x.areaOverride;if(!x.location)return toast('Please enter a location');x.title=[x.propertySubtype,x.propertyType].filter(v=>v&&v!=='Not Applicable').join(' ');const files=[...$('#listingPhoto').files];if(files.length>10)return toast('最多只能上传 10 张照片');if(files.length)x.photos=await Promise.all(files.map(compressPhoto));const isEdit=Boolean(x.id);let listing;if(isEdit){const old=db.listings.find(v=>String(v.id)===x.id);if(!old)return toast('Listing ID 找不到，请 refresh 再试');if(!canManageListing(old))return toast('Only the uploader can edit this listing');listing={...old,...x,id:old.id,shareId:''};delete listing.storeys;if(!files.length)listing.photos=old.photos||[]}else listing={...x,shareId:'',_ownerId:session.user.id};try{listing=await persistListing(listing);let memoryError='';if($('#rememberListingArea').checked&&listing.locationMode==='manual'){try{await sbJson('/rest/v1/rpc/remember_listing_area',{method:'POST',token:session.access_token,body:JSON.stringify({place:listing.location,area:listing.locationArea})});await loadCloud()}catch(error){memoryError=' · Listing saved, but area rule was not saved: '+error.message}}const i=db.listings.findIndex(v=>String(v.id)===String(listing.id));if(i>=0)db.listings[i]=listing;else db.listings.unshift(listing);cacheLocal();render();$('#listingDialog').close();toast((isEdit?'Listing updated':`Listing saved${files.length?' · '+files.length+' photos':''}`)+memoryError)}catch(err){toast(err.message||'Listing save failed')}};
+async function persistListing(listing,{photosChanged=false}={}){
+ const payload=listingPayload(listing);
+ if(listing.id){
+  if(!photosChanged){delete payload.photos;delete payload.photo}
+  const row=await sbJson('/rest/v1/rpc/update_listing_details',{method:'POST',token:session.access_token,timeoutMs:photosChanged?45000:15000,body:JSON.stringify({listing_id:listing.id,changes:payload})});
+  const saved={...listing,...row.listing,id:row.id,_ownerId:row.owner_id,_createdAt:row.created_at};
+  if(photosChanged)delete saved.photo;
+  return saved;
+ }
+ const [row]=await sbJson('/rest/v1/team_listings',{method:'POST',token:session.access_token,timeoutMs:45000,headers:{Prefer:'return=representation'},body:JSON.stringify({owner_id:session.user.id,listing:payload})});
+ if(!row)throw Error('Listing was not saved. Refresh and try again.');
+ return {...row.listing,id:row.id,_ownerId:row.owner_id,_createdAt:row.created_at};
+}
+const listingSaveStatus=document.createElement('p');
+listingSaveStatus.id='listingSaveStatus';listingSaveStatus.className='disclaimer';listingSaveStatus.setAttribute('role','status');listingSaveStatus.setAttribute('aria-live','polite');
+$('#listingForm').append(listingSaveStatus);
+$('#saveListing').onclick=async e=>{
+ e.preventDefault();const f=$('#listingForm'),button=$('#saveListing');
+ if(f.dataset.saving==='true'||!f.reportValidity())return;
+ const x=Object.fromEntries(new FormData(f));delete x.photoFile;
+ x.location=String(x.location||'').trim();x.locationMode=x.areaOverride?'manual':'auto';x.locationArea=x.areaOverride||'';delete x.areaOverride;
+ if(!x.location)return toast('Please enter a location');
+ const files=[...$('#listingPhoto').files],isEdit=Boolean(x.id),remember=$('#rememberListingArea').checked,user=session?.user.id;
+ if(files.length>10)return toast('最多只能上传 10 张照片');
+ const old=isEdit?db.listings.find(v=>String(v.id)===x.id):null;
+ if(isEdit&&(!old||!canManageListing(old)))return toast('Listing not found or you cannot edit it');
+ x.title=[x.propertySubtype,x.propertyType].filter(v=>v&&v!=='Not Applicable').join(' ');
+ const controls=[...f.elements].map(el=>[el,el.disabled]);
+ controls.forEach(([el])=>el.disabled=true);f.dataset.saving='true';f.setAttribute('aria-busy','true');
+ button.textContent=files.length?'Preparing photos…':'Saving…';listingSaveStatus.textContent=files.length?'Preparing photos · 正在处理照片':'Saving changes · 正在保存';
+ let confirmed=false;
+ try{
+  if(files.length)x.photos=await Promise.all(files.map(compressPhoto));
+  let listing=isEdit?{...old,...x,id:old.id,shareId:''}:{...x,shareId:'',_ownerId:user};
+  button.textContent='Saving…';listingSaveStatus.textContent='Saving changes · 正在保存';
+  listing=await persistListing(listing,{photosChanged:files.length>0});confirmed=true;
+  if(session?.user.id!==user)return;
+  const i=db.listings.findIndex(v=>String(v.id)===String(listing.id));if(i>=0)db.listings[i]=listing;else db.listings.unshift(listing);
+  cacheLocal();render();$('#listingDialog').close();listingSaveStatus.textContent='';
+  toast(isEdit?'Listing updated · 已保存':'Listing saved · 已保存');
+  if(remember&&listing.locationMode==='manual')void (async()=>{
+   try{
+    await sbJson('/rest/v1/rpc/remember_listing_area',{method:'POST',token:session.access_token,timeoutMs:10000,body:JSON.stringify({place:listing.location,area:listing.locationArea})});
+    if(session?.user.id!==user)return;
+    const key=v=>String(v||'').toLowerCase().replace(/\btmn\b/g,'taman').replace(/\bsri\b/g,'seri').replace(/[^a-z0-9]+/g,' ').trim();
+    db.listings.forEach(item=>{if(item._ownerId===user&&item.locationMode!=='manual'&&key(item.location)===key(listing.location)){item.locationArea=listing.locationArea;item.locationStatus='auto'}});
+    cacheLocal();render();
+   }catch(error){toast('房源已保存，地区规则尚未确认保存；可稍后再试。')}
+  })();
+ }catch(error){
+  const timedOut=error?.name==='TimeoutError'||error?.name==='AbortError',message=confirmed?'房源已保存，但页面刷新失败；请重新打开查看。':timedOut?'保存结果尚未确认。资料仍在这里，请稍后重开房源确认，避免重复新增。':error?.message||'Save failed · 保存失败，资料仍在这里，可以重试。';
+  listingSaveStatus.textContent=message;toast(message);
+ }finally{
+  controls.forEach(([el,disabled])=>el.disabled=disabled);delete f.dataset.saving;f.removeAttribute('aria-busy');button.textContent='Save';
+ }
+};
+$('#listingDialog').addEventListener('close',()=>{if($('#listingForm').dataset.saving!=='true')listingSaveStatus.textContent=''});
 window.editListing=id=>{const x=db.listings.find(v=>String(v.id)===String(id)),f=$('#listingForm');if(!x)return;if(!canManageListing(x))return toast('Only the uploader can edit this listing');f.reset();Object.entries(x).forEach(([k,v])=>{if(f.elements[k]&&!['photos','photo'].includes(k))f.elements[k].value=k==='propertyType'?canonicalPropertyType(v):v});f.elements.propertySubtype.value=propertySubtypeOf(x);f.elements.id.value=x.id;$('#listingDialogTitle').textContent='View / Edit Listing';const photos=x.photos?.length?x.photos:(x.photo?[x.photo]:[]),preview=$('#listingPhotoPreview');preview.innerHTML=photos.map(p=>`<img src="${p}" alt="Listing photo">`).join('');preview.classList.toggle('hidden',!photos.length);$('#listingDialog').showModal()};
 async function publishListing(listing){const id=await publishShare(listing);listing.shareId=id;return `${location.origin}/share.html?id=${id}`}
 window.closeListingView=()=>$('#listingViewDialog').close();
