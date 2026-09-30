@@ -38,6 +38,7 @@ PUBLIC_STATIC_FILES={
     '/share.js':'share.js',
     '/supabase.js':'supabase.js',
     '/site-analytics.js':'site-analytics.js',
+    '/listing-quality.js':'listing-quality.js',
     '/listing-locations.js':'listing-locations.js',
     '/site-analytics.css':'site-analytics.css',
     '/sw.js':'sw.js',

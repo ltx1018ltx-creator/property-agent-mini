@@ -10,9 +10,10 @@
   status.textContent='Loading website statistics…';
   try{
    const days=Number(document.querySelector('#analyticsDays').value);
-   const [data,visits]=await Promise.all([
+   const [data,visits,campaigns]=await Promise.all([
     sbJson('/rest/v1/rpc/get_site_analytics',{method:'POST',token:session.access_token,body:JSON.stringify({days})}),
-    sbJson('/rest/v1/rpc/get_recent_site_visits',{method:'POST',token:session.access_token,body:JSON.stringify({days})})
+    sbJson('/rest/v1/rpc/get_recent_site_visits',{method:'POST',token:session.access_token,body:JSON.stringify({days})}),
+    sbJson('/rest/v1/rpc/get_site_campaigns',{method:'POST',token:session.access_token,body:JSON.stringify({days})})
    ]);
    if(current!==request||session?.user.id!==user||!isAdmin)return;
    const max=Math.max(1,...data.daily.map(day=>Number(day.views)));
@@ -23,14 +24,22 @@
     <details><summary>Daily figures · 每日数字</summary><div class="analytics-table-wrap"><table><thead><tr><th>Date</th><th>Page views</th><th>WhatsApp clicks</th></tr></thead><tbody>${data.daily.map(day=>`<tr><td>${escape(day.day)}</td><td>${count(day.views)}</td><td>${count(day.enquiries)}</td></tr>`).join('')}</tbody></table></div></details>
     <h3>Most-viewed properties · 热门房源</h3>${data.listings.length?`<div class="analytics-table-wrap"><table><thead><tr><th>Property</th><th>Views</th><th>WhatsApp</th></tr></thead><tbody>${data.listings.map(row=>`<tr><td><a target="_blank" rel="noopener noreferrer" href="https://mari-property-melaka.txleong1998596286.chatgpt.site/?analytics=off&property=${encodeURIComponent(row.listing_id)}">${escape(row.title||row.listing_id)}</a></td><td>${count(row.views)}</td><td>${count(row.enquiries)}</td></tr>`).join('')}</tbody></table></div>`:'<p>No property interactions recorded yet.</p>'}
     <div class="analytics-breakdowns">${breakdown('Devices · 设备',data.devices)}${breakdown('Sources · 来源',data.sources)}</div>
+    <h3>Campaigns · 推广效果</h3>
+    ${campaigns.length?`<div class="analytics-table-wrap"><table><thead><tr><th>Campaign / Source</th><th>Visits</th><th>WhatsApp clicks</th></tr></thead><tbody>${campaigns.map(row=>`<tr><td>${escape(row.campaign)} · ${escape(row.source)}</td><td>${count(row.visits)}</td><td>${count(row.enquiries)}</td></tr>`).join('')}</tbody></table></div>`:'<p>Share a tagged link below to compare your promotions.</p>'}
     <h3>Recent anonymous visits · 近期匿名访问</h3>
     ${visits.length?`<div class="analytics-table-wrap"><table><thead><tr><th>Last seen (MYT)</th><th>Device / Source</th><th>Property viewed</th><th>Pages</th><th>WhatsApp</th></tr></thead><tbody>${visits.map(visit=>`<tr><td>${escape(new Date(visit.last_seen).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}))}</td><td>${escape(visit.device)} · ${escape(visit.source)}</td><td>${escape(visit.properties.join(', ')||'—')}</td><td>${count(visit.page_views)}</td><td>${count(visit.whatsapp_clicks)}</td></tr>`).join('')}</tbody></table></div>`:'<p>No recent visits recorded.</p>'}
-    <p class="disclaimer">These are browser visits, not identified people. No name, phone number, exact address or IP is collected. Sources may be imprecise: Direct includes WhatsApp and apps that hide the source. Multi-property enquiry clicks count once and are not assigned to individual listings. · 此处是匿名浏览记录，并非访客身份；不会记录姓名、电话、详细地址或 IP。</p>`;
+    <p class="disclaimer">These are browser visits, not identified people. No name, phone number, exact address or IP is collected. Sources may be imprecise: Direct includes untagged WhatsApp links and apps that hide the source. Multi-property enquiry clicks count once and are not assigned to individual listings. · 此处是匿名浏览记录，并非访客身份；不会记录姓名、电话、详细地址或 IP。</p>`;
    status.textContent='Updated '+new Date(data.generated_at).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'})+' · Malaysia time'+(data.started_at?' · First recorded visit '+new Date(data.started_at).toLocaleDateString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}):' · Tracking starts after publication');
   }catch(error){if(current===request){report.innerHTML='';status.textContent='Statistics unavailable. Please refresh or sign in again. '+error.message}}
  }
  panel.addEventListener('toggle',()=>{if(panel.open)void load()});
  document.querySelector('#refreshAnalytics').onclick=load;document.querySelector('#analyticsDays').onchange=load;
  new MutationObserver(()=>{if(!document.querySelector('#authScreen').classList.contains('ready')){request++;report.innerHTML='';panel.open=false;status.textContent='Owner sign-in required.'}}).observe(document.querySelector('#authScreen'),{attributes:true,attributeFilter:['class']});
+
+ const source=document.querySelector('#campaignSource'),name=document.querySelector('#campaignName'),link=document.querySelector('#campaignLink'),copyStatus=document.querySelector('#campaignCopyStatus');
+ function campaignLink(){const slug=name.value.trim();const valid=/^[a-zA-Z0-9_-]{0,60}$/.test(slug);name.setCustomValidity(valid?'':'Use letters, numbers, hyphens or underscores (up to 60 characters).');if(!valid){link.value='';return}const url=new URL('https://mari-property-melaka.txleong1998596286.chatgpt.site/');url.searchParams.set('utm_source',source.value);url.searchParams.set('utm_medium',source.value==='whatsapp'?'message':'social');if(slug)url.searchParams.set('utm_campaign',slug);link.value=url.href;copyStatus.textContent=''}
+ source.addEventListener('change',campaignLink);name.addEventListener('input',campaignLink);campaignLink();
+ document.querySelector('#copyCampaignLink').onclick=async()=>{if(!link.value){name.reportValidity();return}try{await navigator.clipboard.writeText(link.value);copyStatus.textContent='Copied · 已复制'}catch{link.focus();link.select();copyStatus.textContent='Select and copy the link · 请手动复制'}};
+
 })();
 
