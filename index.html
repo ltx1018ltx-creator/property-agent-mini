@@ -197,6 +197,12 @@ Send one listing object using fields such as location, propertyType, propertySub
   <dialog id="listingDialog"><form method="dialog" id="listingForm"><button type="button" class="dialog-close" id="closeListingDialog" aria-label="Close">×</button><h3 id="listingDialogTitle">New Listing</h3><input name="id" type="hidden">
     <label>Development / address · 住宅区或地址<input name="location" required maxlength="200" id="listingLocation" list="listingLocationOptions" placeholder="e.g. Taman Seri Songket" autocomplete="off"></label><datalist id="listingLocationOptions"></datalist>
     <label>Filter area · 筛选地区<select id="listingAreaOverride" name="areaOverride"><option value="">Automatic · 自动归类</option></select></label>
+    <section id="newListingAreaPanel" hidden aria-label="Add new location">
+      <label for="newListingAreaName">New location · 新地区名称<input id="newListingAreaName" maxlength="100" placeholder="e.g. Taman Example" autocomplete="off" disabled></label>
+      <p class="disclaimer">Adds a shared filter location for future listings. Use an English or Malay name; Chinese can be included · 保存后可再次选择。</p>
+      <div class="actions"><button type="button" id="cancelNewListingArea">Cancel · 取消</button><button type="button" id="saveNewListingArea" class="primary">Add location · 新增地区</button></div>
+      <p id="newListingAreaStatus" class="disclaimer" role="status" aria-live="polite"></p>
+    </section>
     <p id="listingAreaStatus" class="disclaimer" role="status" aria-live="polite">Enter a development or address to match an area.</p>
     <label style="display:flex;align-items:center;gap:10px"><input type="checkbox" id="rememberListingArea" style="width:18px;height:18px">Remember for my listings in this development · 记住此住宅区</label>
     <p class="disclaimer">Original place names stay unchanged. Unknown areas need your confirmation. Remembering a rule updates your matching automatic listings; individual overrides stay unchanged.</p>
@@ -224,7 +230,7 @@ Send one listing object using fields such as location, propertyType, propertySub
   <dialog id="caseDialog"><form method="dialog" id="caseForm"><button type="button" class="dialog-close" id="closeCaseDialog" aria-label="Close">×</button><h3 id="caseDialogTitle">New Case</h3><input name="client" required placeholder="Client name"><input name="property" required placeholder="Property / project"><div class="size-fields"><label>Deal price (RM)<input name="amount" type="number" placeholder="500000"></label><label>Commission (RM)<input name="commission" type="number" min="0" step="0.01" placeholder="10500"></label></div><select name="status"><option>Pending Loan</option><option>Pending Sign S&amp;P</option><option>Pending Claim</option><option>S&amp;P Signed and Claimed</option><option>Others</option></select><label>Last updated<input name="updated" type="date" required></label><textarea name="remark" rows="3" placeholder="Remark / next action"></textarea><input name="id" type="hidden"><div class="actions"><button value="cancel">Cancel</button><button class="primary" value="default" id="saveCase">Save</button></div></form></dialog>
   <dialog id="splitSubmissionDialog" class="admin-dialog"><form id="splitSubmissionForm" class="admin-dialog-body"><button type="button" class="dialog-close" id="closeSplitSubmissionDialog" aria-label="Close">×</button><h3>Split Submission</h3><p class="admin-agent-meta">Select every message and image that belongs to the new property. Unselected items remain in the original.</p><div id="splitSubmissionItems" class="split-items"></div><p id="splitSubmissionError" class="split-error" role="alert"></p><div class="actions"><button type="button" id="cancelSplitSubmission">Cancel</button><button type="submit" class="primary" id="confirmSplitSubmission">Review split</button></div></form></dialog>
   <div id="toast" class="toast"></div>
-  <script src="supabase.js?v=5"></script><script src="app.js?v=61"></script><script src="listing-locations.js?v=2"></script><script src="site-analytics.js?v=1"></script>
+  <script src="supabase.js?v=5"></script><script src="app.js?v=62"></script><script src="listing-locations.js?v=3"></script><script src="site-analytics.js?v=1"></script>
 </body>
 </html>
 

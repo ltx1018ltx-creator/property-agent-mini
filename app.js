@@ -198,6 +198,7 @@ listingSaveStatus.id='listingSaveStatus';listingSaveStatus.className='disclaimer
 $('#listingForm').append(listingSaveStatus);
 $('#saveListing').onclick=async e=>{
  e.preventDefault();const f=$('#listingForm'),button=$('#saveListing');
+ if(!$('#newListingAreaPanel').hidden)return toast('Add the new location first, or cancel · 请先新增地区，或取消新增');
  if(f.dataset.saving==='true'||!f.reportValidity())return;
  const x=Object.fromEntries(new FormData(f));delete x.photoFile;
  x.location=String(x.location||'').trim();x.locationMode=x.areaOverride?'manual':'auto';x.locationArea=x.areaOverride||'';delete x.areaOverride;
