@@ -9,7 +9,11 @@
   if(!session||!isAdmin){status.textContent='Owner sign-in required.';return}
   status.textContent='Loading website statistics…';
   try{
-   const data=await sbJson('/rest/v1/rpc/get_site_analytics',{method:'POST',token:session.access_token,body:JSON.stringify({days:Number(document.querySelector('#analyticsDays').value)})});
+   const days=Number(document.querySelector('#analyticsDays').value);
+   const [data,visits]=await Promise.all([
+    sbJson('/rest/v1/rpc/get_site_analytics',{method:'POST',token:session.access_token,body:JSON.stringify({days})}),
+    sbJson('/rest/v1/rpc/get_recent_site_visits',{method:'POST',token:session.access_token,body:JSON.stringify({days})})
+   ]);
    if(current!==request||session?.user.id!==user||!isAdmin)return;
    const max=Math.max(1,...data.daily.map(day=>Number(day.views)));
    report.innerHTML=`<div class="analytics-metrics">${[['Visits · 访问',data.sessions],['Page views · 打开网站',data.page_views],['Property views · 房源详情',data.listing_views],['WhatsApp clicks · 联系点击',data.whatsapp_clicks]].map(([label,value])=>`<div><span>${label}</span><strong>${count(value)}</strong></div>`).join('')}</div>
@@ -18,7 +22,10 @@
     <div class="analytics-chart-labels"><span>${escape(data.daily[0]?.day)}</span><span>${escape(data.daily.at(-1)?.day)}</span></div>
     <details><summary>Daily figures · 每日数字</summary><div class="analytics-table-wrap"><table><thead><tr><th>Date</th><th>Page views</th><th>WhatsApp clicks</th></tr></thead><tbody>${data.daily.map(day=>`<tr><td>${escape(day.day)}</td><td>${count(day.views)}</td><td>${count(day.enquiries)}</td></tr>`).join('')}</tbody></table></div></details>
     <h3>Most-viewed properties · 热门房源</h3>${data.listings.length?`<div class="analytics-table-wrap"><table><thead><tr><th>Property</th><th>Views</th><th>WhatsApp</th></tr></thead><tbody>${data.listings.map(row=>`<tr><td><a target="_blank" rel="noopener noreferrer" href="https://mari-property-melaka.txleong1998596286.chatgpt.site/?analytics=off&property=${encodeURIComponent(row.listing_id)}">${escape(row.title||row.listing_id)}</a></td><td>${count(row.views)}</td><td>${count(row.enquiries)}</td></tr>`).join('')}</tbody></table></div>`:'<p>No property interactions recorded yet.</p>'}
-    <div class="analytics-breakdowns">${breakdown('Devices · 设备',data.devices)}${breakdown('Sources · 来源',data.sources)}</div><p class="disclaimer">Direct includes links opened from WhatsApp or apps that hide the source. Multi-property enquiry clicks count once and are not assigned to individual listings.</p>`;
+    <div class="analytics-breakdowns">${breakdown('Devices · 设备',data.devices)}${breakdown('Sources · 来源',data.sources)}</div>
+    <h3>Recent anonymous visits · 近期匿名访问</h3>
+    ${visits.length?`<div class="analytics-table-wrap"><table><thead><tr><th>Last seen (MYT)</th><th>Device / Source</th><th>Property viewed</th><th>Pages</th><th>WhatsApp</th></tr></thead><tbody>${visits.map(visit=>`<tr><td>${escape(new Date(visit.last_seen).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}))}</td><td>${escape(visit.device)} · ${escape(visit.source)}</td><td>${escape(visit.properties.join(', ')||'—')}</td><td>${count(visit.page_views)}</td><td>${count(visit.whatsapp_clicks)}</td></tr>`).join('')}</tbody></table></div>`:'<p>No recent visits recorded.</p>'}
+    <p class="disclaimer">These are browser visits, not identified people. No name, phone number, exact address or IP is collected. Sources may be imprecise: Direct includes WhatsApp and apps that hide the source. Multi-property enquiry clicks count once and are not assigned to individual listings. · 此处是匿名浏览记录，并非访客身份；不会记录姓名、电话、详细地址或 IP。</p>`;
    status.textContent='Updated '+new Date(data.generated_at).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'})+' · Malaysia time'+(data.started_at?' · First recorded visit '+new Date(data.started_at).toLocaleDateString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}):' · Tracking starts after publication');
   }catch(error){if(current===request){report.innerHTML='';status.textContent='Statistics unavailable. Please refresh or sign in again. '+error.message}}
  }
@@ -26,3 +33,4 @@
  document.querySelector('#refreshAnalytics').onclick=load;document.querySelector('#analyticsDays').onchange=load;
  new MutationObserver(()=>{if(!document.querySelector('#authScreen').classList.contains('ready')){request++;report.innerHTML='';panel.open=false;status.textContent='Owner sign-in required.'}}).observe(document.querySelector('#authScreen'),{attributes:true,attributeFilter:['class']});
 })();
+
