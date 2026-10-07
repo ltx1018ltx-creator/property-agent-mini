@@ -26,6 +26,9 @@ PUBLIC_CATALOG_CACHE_SECONDS=30
 PUBLIC_STATIC_FILES={
     '/':'index.html',
     '/index.html':'index.html',
+    '/join.html':'join.html',
+    '/member-invites.js':'member-invites.js',
+    '/member-invites.css':'member-invites.css',
     '/catalog.html':'catalog.html',
     '/landing.html':'landing.html',
     '/share.html':'share.html',
@@ -224,6 +227,44 @@ def require_admin(headers):
         return (result is True,403 if result is not True else 200)
     except HTTPError as error:return False,401 if error.code==401 else 403
     except Exception:return False,503
+
+def member_invitation(payload,check_only=False):
+    """A bearer invite permits a member invitation, never an admin role or session."""
+    if not SUPABASE_SERVICE_ROLE_KEY:return 503,{'error':'Invitation service is temporarily unavailable. Contact Tong Xen.'}
+    if not isinstance(payload,dict):return 400,{'error':'Invalid invitation request'}
+    token=payload.get('token','')
+    if not isinstance(token,str) or not re.fullmatch(r'[0-9a-f]{64}',token):return 400,{'error':'This invitation link is invalid or unavailable.'}
+    if check_only:
+        try:
+            result=_supabase_request('/rest/v1/rpc/check_workspace_invite_link','POST',{'raw_token':token})
+            return (200,result) if result.get('valid') else (410,{'error':'This invitation has expired, was revoked or has no remaining places. Ask Tong Xen for a new link.'})
+        except Exception:return 503,{'error':'Invitation service is temporarily unavailable. Please try again later.'}
+    email=payload.get('email','');name=payload.get('name','')
+    if not isinstance(email,str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email.strip()) or len(email.strip())>254:return 400,{'error':'Enter a valid email address'}
+    if not isinstance(name,str) or not name.strip() or len(name.strip())>100:return 400,{'error':'Enter your name (up to 100 characters)'}
+    email=email.strip().lower();name=name.strip()
+    try:
+        reservation=_supabase_request('/rest/v1/rpc/reserve_workspace_invite','POST',{'raw_token':token,'recipient_email':email})
+    except HTTPError as error:return (410 if error.code in (400,404,409) else 503),{'error':'This invitation is unavailable. Ask Tong Xen for a new link.'}
+    except Exception:return 503,{'error':'Invitation service is temporarily unavailable. Please try again later.'}
+    try:
+        invited=_supabase_request('/auth/v1/invite?redirect_to='+quote(SITE_URL,safe=''),'POST',{'email':email,'data':{'name':name}})
+    except HTTPError as error:
+        try:detail=json.loads(error.read(10000));code=detail.get('error_code') or detail.get('code')
+        except Exception:code=None
+        if error.code in (401,403) or code in ('email_exists','user_already_exists','email_address_invalid'):
+            try:_supabase_request('/rest/v1/rpc/release_workspace_invite','POST',{'reservation_id':reservation})
+            except Exception:pass
+        # Uncertain outcomes keep their slot reserved, preventing quota bypass.
+        return 400,{'error':'Unable to send the invitation. If you already have an account, sign in or contact Tong Xen. Otherwise ask for a new link.'}
+    except Exception:return 503,{'error':'The invitation request could not be confirmed. Check your email or ask Tong Xen for a new link.'}
+    user=invited.get('user',invited) if isinstance(invited,dict) else {}
+    try:
+        _supabase_request('/rest/v1/rpc/complete_workspace_invite','POST',{'reservation_id':reservation,'invited_user_id':user.get('id')})
+    except Exception:
+        # Email was sent. Preserve its reserved place and let email verification proceed.
+        pass
+    return 200,{'ok':True,'message':'Check your email for the invitation. Open it to set your password and join.'}
 
 def _bearer_token(headers):
     auth=headers.get('Authorization','')
@@ -723,6 +764,14 @@ class Handler(SimpleHTTPRequestHandler):
     def reply_text(self,status,payload):
         body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
+        if urlsplit(self.path).path in ('/api/member-invites/check','/api/member-invites/join'):
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if size<2 or size>2048:return self.reply(400,{'error':'Invalid invitation request'})
+                payload=json.loads(self.rfile.read(size))
+            except (ValueError,UnicodeDecodeError,json.JSONDecodeError):return self.reply(400,{'error':'Invalid invitation request'})
+            status,result=member_invitation(payload,check_only=urlsplit(self.path).path.endswith('/check'))
+            return self.reply(status,result)
         parsed_path=urlsplit(self.path).path
         match=re.fullmatch(r'/api/admin/listing-submissions/([^/]+)/split',parsed_path)
         if match:
@@ -1168,4 +1217,3 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__=='__main__':
     port=int(os.environ.get('PORT','8080'))
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
-
