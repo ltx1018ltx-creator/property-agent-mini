@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+import public_chat
 
 ROOT=Path(__file__).resolve().parent
 DATA=ROOT/'shares.json'
@@ -739,8 +740,17 @@ class Handler(SimpleHTTPRequestHandler):
             return
         super().log_request(code,size)
     def end_headers(self):
+        if urlsplit(self.path).path==public_chat.PATH and self.headers.get('Origin')==public_chat.ORIGIN:
+            self.send_header('Access-Control-Allow-Origin',public_chat.ORIGIN)
+            self.send_header('Vary','Origin')
+            self.send_header('Access-Control-Allow-Methods','POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers','Content-Type')
         if urlsplit(self.path).path.endswith(('.html','.js','.css','/')):self.send_header('Cache-Control','no-cache, no-store, must-revalidate')
         super().end_headers()
+    def do_OPTIONS(self):
+        if urlsplit(self.path).path==public_chat.PATH and self.headers.get('Origin')==public_chat.ORIGIN:
+            self.send_response(204);self.send_header('Content-Length','0');self.end_headers();return
+        return self.reply(403,{'error':'origin_not_allowed'})
     def serve_public_file(self,path,head_only=False):
         """Serve only explicitly public repository assets, never arbitrary files."""
         relative=PUBLIC_STATIC_FILES.get(path)
@@ -764,6 +774,8 @@ class Handler(SimpleHTTPRequestHandler):
     def reply_text(self,status,payload):
         body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
+        if urlsplit(self.path).path==public_chat.PATH:
+            return public_chat.handle(self,_supabase_request,SUPABASE_URL,SUPABASE_KEY,SUPABASE_SERVICE_ROLE_KEY)
         if urlsplit(self.path).path in ('/api/member-invites/check','/api/member-invites/join'):
             try:
                 size=int(self.headers.get('Content-Length','0'))
@@ -1217,3 +1229,4 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__=='__main__':
     port=int(os.environ.get('PORT','8080'))
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
+
