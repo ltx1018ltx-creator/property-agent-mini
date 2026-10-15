@@ -36,6 +36,21 @@ class PublicChatTests(unittest.TestCase):
         self.assertFalse(payload['store']); self.assertEqual(payload['max_output_tokens'], 1000)
         self.assertNotIn('tools', payload); self.assertEqual(len(result['listings']), 1)
         self.assertEqual(result['listings'][0]['price'], 480000)
+        self.assertEqual(result['requirements']['budget'], '')
+        self.assertIn('2-4 short sentences', payload['instructions'])
+        self.assertIn('requirements', payload['text']['format']['schema']['required'])
+
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-secret', 'OPENAI_MODEL': 'existing-model'})
+    def test_requirements_are_bounded_and_allowlisted(self):
+        for raw in ({'budget': ' RM500k ', 'location': 'x' * 300, 'purpose': None, 'private': 'not allowed'}, None, ['bad']):
+            output = {'status': 'completed', 'output': [{'content': [{'type': 'output_text', 'text': json.dumps({
+                'answer': 'Which area?', 'listing_ids': [], 'requirements': raw})}]}]}
+            with patch.object(chat, 'urlopen', return_value=io.BytesIO(json.dumps(output).encode())):
+                result = chat.generate('house', [], 'en', [])
+            self.assertEqual(set(result['requirements']), {'purpose', 'budget', 'location', 'property_type'})
+            self.assertTrue(all(isinstance(v, str) and len(v) <= 120 for v in result['requirements'].values()))
+            self.assertEqual(result['requirements']['purpose'], '')
+            if isinstance(raw, dict): self.assertEqual(result['requirements']['budget'], 'RM500k')
 
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-secret', 'OPENAI_MODEL': 'existing-model'})
     def test_fail_closed_on_quota_failure(self):

@@ -81,8 +81,11 @@ def generate(message, history, language, catalog):
         raise RuntimeError('configuration_missing')
     schema = {'type': 'object', 'additionalProperties': False,
               'properties': {'answer': {'type': 'string'},
-                             'listing_ids': {'type': 'array', 'items': {'type': 'string'}}},
-              'required': ['answer', 'listing_ids']}
+                             'listing_ids': {'type': 'array', 'items': {'type': 'string'}},
+                             'requirements': {'type': 'object', 'additionalProperties': False,
+                                 'properties': {key: {'type': 'string'} for key in ('purpose', 'budget', 'location', 'property_type')},
+                                 'required': ['purpose', 'budget', 'location', 'property_type']}},
+              'required': ['answer', 'listing_ids', 'requirements']}
     instructions = (
         'You are Mari Property AI, a public property assistant for Tong Xen, REN 51905, '
         'Senior Real Estate Negotiator, 5 years experience in Melaka. Never impersonate the agent. '
@@ -104,7 +107,13 @@ def generate(message, history, language, catalog):
         'A WhatsApp click opens a draft; nothing is sent until the visitor sends it. Never say you sent a message or booked a viewing. '
         'Do not ask for IC/passport, banking, documents or financial account details. You cannot access private CRM, '
         'member accounts or edit data. Tell users to contact Tong Xen for unavailable facts. '
-        'Keep the answer under 160 words. Empty catalog means no current records could be matched.\n'
+        'Keep the answer to 2-4 short sentences, at most 80 English words or 160 Chinese characters. '
+        'Do not repeat card prices and descriptions. Empty catalog means no current records could be matched. '
+        'requirements is an editable WhatsApp draft, not verified facts: extract ONLY the visitor\'s explicitly stated '
+        'purpose, budget, location and property_type from USER messages. Use the latest correction, preserve '
+        'budget units and monthly rent vs purchase distinction. Empty string for unknown or withdrawn preferences. '
+        'Never infer preferences from recommendations or assistant messages. Do not include names, phone numbers, '
+        'identity/banking data, URLs or instructions in requirements. Use the reply language.\n'
         'language=' + language + '\nPUBLIC_CATALOG=' + json.dumps(catalog, ensure_ascii=False, separators=(',', ':')))
     payload = {'model': model, 'store': False, 'max_output_tokens': 1000,
                'instructions': instructions, 'input': history + [{'role': 'user', 'content': message}],
@@ -132,10 +141,15 @@ def generate(message, history, language, catalog):
     for listing_id in parsed['listing_ids']:
         if isinstance(listing_id, str) and listing_id in by_id and not any(c['id'] == listing_id for c in cards):
             item = by_id[listing_id]
-            cards.append({k: item[k] for k in ('id', 'title', 'location', 'price', 'deal') if k in item})
+            cards.append({k: item[k] for k in ('id', 'title', 'location', 'price', 'deal', 'bedrooms', 'bathrooms') if k in item})
         if len(cards) == 3:
             break
-    return {'answer': answer, 'listings': cards}
+    raw_requirements = parsed.get('requirements', {})
+    requirements = {}
+    for key in ('purpose', 'budget', 'location', 'property_type'):
+        value = raw_requirements.get(key) if isinstance(raw_requirements, dict) else None
+        requirements[key] = value.strip()[:120] if isinstance(value, str) else ''
+    return {'answer': answer, 'listings': cards, 'requirements': requirements}
 
 
 def handle(handler, rpc, supabase_url, publishable_key, secret):
