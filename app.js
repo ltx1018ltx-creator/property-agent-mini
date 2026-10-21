@@ -395,8 +395,9 @@ async function publishDraft(button){const card=button.closest('.draft-card'),sub
 $('#refreshDraftInbox').onclick=loadDraftInbox;
 $('#mergeDraftSubmissions').onclick=mergeDraftSubmissions;
 async function verifyMembership(s){
- const member=await sbJson('/rest/v1/rpc/get_workspace_membership',{method:'POST',token:s.access_token,body:'{}'});
- if(member?.status!=='active')throw Error(member?.status==='suspended'?'Your access has been suspended. Contact Tong Xen.':'This workspace is invitation only. Contact Tong Xen for access.');
+ const member=await sbJson('/rest/v1/rpc/get_workspace_membership',{method:'POST',token:s.access_token,body:'{}',timeoutMs:12000});
+ if(member===null||['suspended','pending'].includes(member?.status))throw Object.assign(Error(member?.status==='suspended'?'Your access has been suspended. Contact Tong Xen.':'This workspace is invitation only. Contact Tong Xen for access.'),{authTerminal:true});
+ if(member?.status!=='active')throw Error('Unable to verify workspace access. Please retry.');
  return member;
 }
 function lockWorkspace(message){
@@ -417,14 +418,29 @@ async function enterApp(s){
  $('#dashboard .hero h2').textContent=`Welcome, ${s.user.user_metadata?.name||s.user.email.split('@')[0]}.`;
  fillMemberProfile();$('#authScreen').classList.add('ready');render();await Promise.all([loadCloud(),loadAdmin()]);await claimImport();
 }
-let membershipCheckRunning=false;
+let membershipCheckRunning=false,membershipOffline=false;
+function membershipFailure(e){
+ if(e.authTerminal){lockWorkspace(e.message);return}
+ const message='Connection interrupted. Your session is kept; checking again shortly. 网络暂时中断，正在重试。';
+ if(session){setSync('Connection interrupted','error',message);if(!membershipOffline)toast(message)}
+ else $('#authMessage').textContent=message;
+ membershipOffline=true;
+}
 async function recheckMembership(){
- if(!session||membershipCheckRunning)return;membershipCheckRunning=true;const current=session;
- try{await verifyMembership(current)}catch(e){if(session?.user.id===current.user.id)lockWorkspace(e.message)}
+ if(membershipCheckRunning)return;membershipCheckRunning=true;const current=session,epoch=authEpoch;
+ try{
+  const fresh=await validSession();
+  if(epoch!==authEpoch)return;
+  if(!fresh){if(current)lockWorkspace('Please log in again.');return}
+  if(current&&current.user.id!==fresh.user.id){lockWorkspace('Account changed. Please log in again.');return}
+  if(current){session=fresh;await verifyMembership(fresh)}else await enterApp(fresh);
+  if(membershipOffline){membershipOffline=false;if($('#syncStatus')?.textContent==='Connection interrupted')setSync('Connection restored');$('#authMessage').textContent=''}
+ }catch(e){if(epoch===authEpoch&&(!current||session?.user.id===current.user.id))membershipFailure(e)}
  finally{membershipCheckRunning=false}
 }
 setInterval(recheckMembership,30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void recheckMembership()});
+window.addEventListener('online',()=>void recheckMembership());
 $('#authForm').onsubmit=async e=>{e.preventDefault();const msg=$('#authMessage');msg.textContent='Logging in…';try{await enterApp(await signIn($('#authEmail').value.trim(),$('#authPassword').value));msg.textContent=''}catch(err){msg.textContent=err.message}}
 
 let pendingInviteSession=null;
@@ -443,6 +459,6 @@ $('#setInvitePasswordBtn').onclick=async()=>{
 };
 $('#logoutBtn').onclick=async()=>{await signOut();location.reload()};
 fillListingOptions();$('#todayLabel').textContent=new Intl.DateTimeFormat('en-MY',{weekday:'long',day:'numeric',month:'long'}).format(new Date());
-(async()=>{try{if(!await handleInvite()){const s=await validSession();if(s)await enterApp(s)}}catch(e){lockWorkspace(e.message)}})();
+(async()=>{try{if(!await handleInvite())await recheckMembership()}catch(e){membershipFailure(e)}})();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready).then(importAndroidShare);
 
