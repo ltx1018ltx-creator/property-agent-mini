@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import base64, hashlib, hmac, json, logging, os, re, secrets, socket, threading, time, uuid
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.error import HTTPError
@@ -63,7 +64,7 @@ _public_catalog_cache_lock=threading.Lock()
 WHATSAPP_MEDIA_MAX_BYTES=15*1024*1024
 WHATSAPP_MEDIA_TIMEOUT_SECONDS=10
 WHATSAPP_MEDIA_MIME_TYPES=frozenset(('image/jpeg','image/png','image/webp'))
-AI_DRAFT_PROMPT_VERSION='phase3a-v3'
+AI_DRAFT_PROMPT_VERSION='phase3a-v4'
 AI_DRAFT_MAX_BYTES=64*1024
 AI_DRAFT_TIMEOUT_SECONDS=45
 OPENAI_ERROR_MESSAGE_MAX_CHARS=300
@@ -75,6 +76,8 @@ _webhook_events=OrderedDict()
 _webhook_events_lock=threading.Lock()
 _webhook_logger=logging.getLogger('whatsapp.webhook')
 _draft_logger=logging.getLogger('ai.drafts')
+# Bound media concurrency across requests, not just within each listing.
+_media_pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='listing-media')
 
 class OpenAIProviderError(Exception):
     """An OpenAI HTTP failure containing only fields safe for operational logs."""
@@ -315,8 +318,7 @@ def _copy_submission_images(submission_id,draft_id):
     """Copy stored private media to deterministic public objects; originals are untouched."""
     rows=_supabase_request('/rest/v1/listing_submission_messages?listing_submission_id=eq.'+
         quote(submission_id,safe='')+'&message_type=eq.image&media_status=eq.stored&select=id,media_storage_bucket,media_storage_path,media_mime_type&order=id.asc')
-    urls=[]
-    for row in rows:
+    def copy_image(row):
         mime=row.get('media_mime_type')
         if row.get('media_storage_bucket')!=WHATSAPP_MEDIA_BUCKET or mime not in WHATSAPP_MEDIA_MIME_TYPES:
             raise ValueError('invalid_image')
@@ -332,7 +334,24 @@ def _copy_submission_images(submission_id,draft_id):
             data=content,method='POST',headers={'apikey':SUPABASE_SERVICE_ROLE_KEY,
             'Authorization':f'Bearer {SUPABASE_SERVICE_ROLE_KEY}','Content-Type':mime,'x-upsert':'true'})
         with urlopen(upload,timeout=WHATSAPP_MEDIA_TIMEOUT_SECONDS) as response:response.read()
-        urls.append(f'{SUPABASE_URL}/storage/v1/object/public/{LISTING_IMAGE_BUCKET}/{quote(public_path,safe="/")}')
+        return f'{SUPABASE_URL}/storage/v1/object/public/{LISTING_IMAGE_BUCKET}/{quote(public_path,safe="/")}'
+    # map preserves photo order even when uploads finish out of order.
+    return list(_media_pool.map(copy_image,rows))
+
+def _submission_image_urls(messages):
+    paths=list(dict.fromkeys(m['media_storage_path'] for m in messages
+        if m.get('media_status')=='stored' and m.get('media_storage_path')
+        and m.get('media_storage_bucket')==WHATSAPP_MEDIA_BUCKET))
+    urls={}
+    for offset in range(0,len(paths),100):
+        batch=paths[offset:offset+100]
+        rows=_supabase_request('/storage/v1/object/sign/'+WHATSAPP_MEDIA_BUCKET,
+            'POST',{'expiresIn':300,'paths':batch})
+        if not isinstance(rows,list):raise ValueError('invalid_signed_urls')
+        for row in rows:
+            path=row.get('path');signed=row.get('signedURL') or row.get('signedUrl')
+            if path in batch and isinstance(signed,str) and signed.startswith('/object/') and not row.get('error'):
+                urls[path]=f'{SUPABASE_URL}/storage/v1{signed}'
     return urls
 
 def _draft_schema():
@@ -424,9 +443,11 @@ def generate_openai_draft(source_text):
                   'Use propertyType Land only for an explicit vacant, agricultural, residential, or development land listing, or land for sale. '
                   'For labelled land dimensions such as 22x70, preserve the dimensions as landSize. '
                   'Never infer or invent any other facts: use null and include the field in missingFields when absent or uncertain. '
-                  'Keep factual structuredData separate from concise Chinese marketingCopy; marketing copy must not add facts.')
+                  'Keep factual structuredData separate from Chinese marketingCopy of at most two short sentences (80 Chinese characters). '
+                  'Do not repeat every field, include contact details, or add facts in marketingCopy. Return compact JSON only.')
     # Phone-like runs are identifiers, not property facts. Preserve ordinary
     # measurements/prices while removing 8+ digit contact-number patterns.
+    source_text='\n'.join(dict.fromkeys(line.strip() for line in source_text.splitlines() if line.strip()))
     safe_source=re.sub(r'(?<!\w)\+?(?:\d[\s().-]?){7,}\d(?!\w)','[phone removed]',source_text)
     payload={'model':model,'instructions':instructions,'input':safe_source,
              'text':{'format':{'type':'json_schema','name':'property_draft','strict':True,'schema':_draft_schema()}}}
@@ -864,9 +885,10 @@ class Handler(SimpleHTTPRequestHandler):
                 user=_supabase_request('/auth/v1/user',token=_bearer_token(self.headers))
                 owner=_valid_uuid(user.get('id') if isinstance(user,dict) else None)
                 if not owner:return self.reply(401,{'error':'Unauthorized'})
+                listing=_listing_from_draft(draft.get('structured_data'),draft.get('marketing_copy'),[])
                 operation='copy_listing_image'
                 photos=_copy_submission_images(draft['listing_submission_id'],draft_id)
-                listing=_listing_from_draft(draft.get('structured_data'),draft.get('marketing_copy'),photos)
+                listing['photos']=photos
                 operation='publish_approved_listing'
                 result=_supabase_request('/rest/v1/rpc/publish_approved_listing','POST',{
                     'draft_id':draft_id,'publishing_owner':owner,'clean_listing':listing})
@@ -924,13 +946,15 @@ class Handler(SimpleHTTPRequestHandler):
                     quote(submission_id,safe='')+'&select=message_text&order=message_timestamp.asc')
                 source='\n'.join(row.get('message_text','') for row in messages if isinstance(row.get('message_text'),str)).strip()
                 if not source:raise ValueError('malformed_response')
+                generation_started=time.monotonic()
                 generated=generate_openai_draft(source)
+                generation_ms=round((time.monotonic()-generation_started)*1000)
                 rows=_supabase_request('/rest/v1/listing_submission_drafts?id=eq.'+quote(claim['draft']['id'],safe=''),
                     'PATCH',{'structured_data':generated['structuredData'],'marketing_copy':generated['marketingCopy'],
                     'status':'generated','error_code':None,'updated_at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},
                     headers={'Prefer':'return=representation'})
-                _draft_logger.info('AI draft generation completed: status=generated prompt_version=%s',AI_DRAFT_PROMPT_VERSION)
-                return self.reply(200,{'draft':rows[0]})
+                _draft_logger.info('AI draft generation completed: status=generated prompt_version=%s generation_ms=%s',AI_DRAFT_PROMPT_VERSION,generation_ms)
+                return self.reply(200,{'draft':rows[0],'generation_ms':generation_ms})
             except Exception as error:
                 code=_draft_error_code(error)
                 draft_id=(claim.get('draft') or {}).get('id') if 'claim' in locals() and isinstance(claim,dict) else None
@@ -1140,13 +1164,11 @@ class Handler(SimpleHTTPRequestHandler):
                         '&select=id,listing_submission_id,structured_data,marketing_copy,status,model_name,prompt_version,error_code,created_at,updated_at,published_listing_id,published_at')
                 by_submission={row['id']:{**row,'messages':[],'draft':None} for row in submissions}
                 for draft in drafts:by_submission.get(draft['listing_submission_id'],{})['draft']=draft
+                image_urls=_submission_image_urls(messages)
                 for message in messages:
                     safe={k:v for k,v in message.items() if k not in ('media_storage_bucket','media_storage_path')}
-                    if message.get('media_status')=='stored' and message.get('media_storage_path'):
-                        signed=_supabase_request('/storage/v1/object/sign/'+WHATSAPP_MEDIA_BUCKET+'/'+quote(message['media_storage_path'],safe='/'),
-                            'POST',{'expiresIn':300})
-                        path=signed.get('signedURL') or signed.get('signedUrl')
-                        safe['image_url']=f'{SUPABASE_URL}/storage/v1{path}' if path and path.startswith('/object/') else path
+                    if message.get('media_storage_path') in image_urls:
+                        safe['image_url']=image_urls[message['media_storage_path']]
                     by_submission.get(message['listing_submission_id'],{'messages':[]})['messages'].append(safe)
                 return self.reply(200,{'submissions':list(by_submission.values()),'ai_enabled':ai_draft_enabled(),
                                        'prompt_version':AI_DRAFT_PROMPT_VERSION})
@@ -1213,10 +1235,13 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(payload.get('structured_data'),dict) or not isinstance(payload.get('marketing_copy'),str):raise ValueError()
             if len(payload['marketing_copy'])>20_000 or len(json.dumps(payload['structured_data']))>40_000:raise ValueError()
             clean={key:payload['structured_data'].get(key) for key in (*AI_DRAFT_FIELDS,'missingFields')}
-            rows=_supabase_request('/rest/v1/listing_submission_drafts?id=eq.'+quote(draft_id,safe=''),'PATCH',
+            rows=_supabase_request('/rest/v1/listing_submission_drafts?id=eq.'+quote(draft_id,safe='')+'&published_listing_id=is.null&status=neq.pending','PATCH',
                 {'structured_data':clean,'marketing_copy':payload['marketing_copy'],'status':payload['status']},
                 headers={'Prefer':'return=representation'})
-            if not rows:return self.reply(404,{'error':'Draft not found'})
+            if not rows:
+                existing=_supabase_request('/rest/v1/listing_submission_drafts?id=eq.'+quote(draft_id,safe=''))
+                if existing and existing[0].get('published_listing_id'):return self.reply(200,{'draft':existing[0]})
+                return self.reply(409,{'error':'Draft unavailable or still generating. Refresh the inbox before reviewing.'})
             _draft_logger.info('AI draft review updated: status=%s',payload['status'])
             return self.reply(200,{'draft':rows[0]})
         except (UnicodeDecodeError,json.JSONDecodeError,ValueError):return self.reply(400,{'error':'Invalid draft'})
@@ -1229,4 +1254,3 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__=='__main__':
     port=int(os.environ.get('PORT','8080'))
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
-
