@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 ORIGIN = 'https://mari-property-melaka.txleong1998596286.chatgpt.site'
+ALLOWED_ORIGINS = frozenset((ORIGIN, 'https://mari-property-melaka.onrender.com'))
 OWNER = '6c8e4545-3e89-40e2-b5a9-7a18475641d7'
 PATH = '/api/public/property-chat'
 FIELDS = ('title', 'location', 'locationArea', 'propertyType', 'propertySubtype',
@@ -153,7 +154,7 @@ def generate(message, history, language, catalog):
 
 
 def handle(handler, rpc, supabase_url, publishable_key, secret):
-    if handler.headers.get('Origin') != ORIGIN:
+    if handler.headers.get('Origin') not in ALLOWED_ORIGINS:
         return handler.reply(403, {'error': 'origin_not_allowed'})
     if not os.environ.get('OPENAI_API_KEY') or not (os.environ.get('PUBLIC_CHAT_MODEL') or os.environ.get('OPENAI_MODEL')) or not secret:
         logging.getLogger('public.chat').warning('Public chat configuration missing')

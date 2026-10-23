@@ -761,15 +761,15 @@ class Handler(SimpleHTTPRequestHandler):
             return
         super().log_request(code,size)
     def end_headers(self):
-        if urlsplit(self.path).path==public_chat.PATH and self.headers.get('Origin')==public_chat.ORIGIN:
-            self.send_header('Access-Control-Allow-Origin',public_chat.ORIGIN)
+        if urlsplit(self.path).path==public_chat.PATH and self.headers.get('Origin') in public_chat.ALLOWED_ORIGINS:
+            self.send_header('Access-Control-Allow-Origin',self.headers.get('Origin'))
             self.send_header('Vary','Origin')
             self.send_header('Access-Control-Allow-Methods','POST, OPTIONS')
             self.send_header('Access-Control-Allow-Headers','Content-Type')
         if urlsplit(self.path).path.endswith(('.html','.js','.css','/')):self.send_header('Cache-Control','no-cache, no-store, must-revalidate')
         super().end_headers()
     def do_OPTIONS(self):
-        if urlsplit(self.path).path==public_chat.PATH and self.headers.get('Origin')==public_chat.ORIGIN:
+        if urlsplit(self.path).path==public_chat.PATH and self.headers.get('Origin') in public_chat.ALLOWED_ORIGINS:
             self.send_response(204);self.send_header('Content-Length','0');self.end_headers();return
         return self.reply(403,{'error':'origin_not_allowed'})
     def serve_public_file(self,path,head_only=False):
