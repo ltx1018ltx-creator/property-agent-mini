@@ -232,6 +232,8 @@ before deploying this release (already applied to the linked project). It grants
 only the server role permission to compare-and-swap legacy image payloads.
 Also apply `20261028060138_grant_service_photo_migration_columns.sql` for the
 linked project's explicit service-role column permissions (already applied).
+The accompanying `20261028060812_grant_service_share_migration_read.sql` grants
+the server only the share columns required to back up and migrate snapshots.
 
 The web service starts a resumable background conversion ten seconds after
 startup when its existing server-only Supabase key is configured. Set
