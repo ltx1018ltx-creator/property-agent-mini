@@ -31,7 +31,7 @@ async function loadAgentListings(owner){
   return CatalogData.normalizeCatalogRows(rows,category=>console.warn(category)).map(row=>({...row,_summary:true}));
 }
 async function loadListingDetail(id){
-  const path=`/rest/v1/team_listings?id=eq.${encodeURIComponent(id)}&select=${encodeURIComponent(publicListingSelect)}&limit=1`;
+  const path=`/rest/v1/team_listings?id=eq.${encodeURIComponent(id)}&select=${encodeURIComponent(publicListingSelect+',photos:listing->photos')}&limit=1`;
   const r=await fetch(`${SUPABASE_URL}${path}`,{cache:'no-store',headers:{apikey:SUPABASE_KEY}});
   if(!r.ok)throw Error('listing unavailable');
   const [row]=await r.json();

@@ -9,6 +9,7 @@ from urllib.parse import quote
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 import public_chat
+import listing_media
 
 ROOT=Path(__file__).resolve().parent
 DATA=ROOT/'shares.json'
@@ -795,6 +796,27 @@ class Handler(SimpleHTTPRequestHandler):
     def reply_text(self,status,payload):
         body=str(payload).encode();self.send_response(status);self.send_header('Content-Type','text/plain; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(body)
     def do_POST(self):
+        if urlsplit(self.path).path=='/api/listing-images':
+            token=_bearer_token(self.headers)
+            if not token:return self.reply(401,{'error':'Please sign in'})
+            try:
+                member=_supabase_request('/rest/v1/rpc/get_workspace_membership','POST',{},token=token)
+                if not isinstance(member,dict) or member.get('status')!='active':
+                    return self.reply(403,{'error':'Active workspace membership required'})
+                user=_supabase_request('/auth/v1/user',token=token)
+                owner=_valid_uuid(user.get('id'))
+                if not owner:return self.reply(401,{'error':'Please sign in again'})
+            except Exception:return self.reply(401,{'error':'Unable to verify membership'})
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if not 2<=size<=15*1024*1024:return self.reply(413,{'error':'Photos are too large'})
+                payload=json.loads(self.rfile.read(size))
+                if not isinstance(payload,dict) or set(payload)!={'photos'}:raise ValueError()
+                store=listing_media.MediaStore(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,_supabase_request)
+                photos=store.photos(payload['photos'],owner)
+                return self.reply(200,{'photos':photos})
+            except (ValueError,UnicodeDecodeError):return self.reply(400,{'error':'Use up to ten JPEG, PNG or WebP photos, each under 2 MB'})
+            except Exception:return self.reply(503,{'error':'Photo upload could not be confirmed. Please retry.'})
         if urlsplit(self.path).path==public_chat.PATH:
             return public_chat.handle(self,_supabase_request,SUPABASE_URL,SUPABASE_KEY,SUPABASE_SERVICE_ROLE_KEY)
         if urlsplit(self.path).path in ('/api/member-invites/check','/api/member-invites/join'):
@@ -1253,4 +1275,10 @@ class Handler(SimpleHTTPRequestHandler):
         del data[sid];save_imports(data);self.reply(200,{'ok':True})
 if __name__=='__main__':
     port=int(os.environ.get('PORT','8080'))
+    if SUPABASE_SERVICE_ROLE_KEY and os.environ.get('LISTING_IMAGE_MIGRATION_ENABLED','true').lower()=='true':
+        def migrate_legacy_images():
+            time.sleep(10)
+            try:listing_media.MediaStore(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,_supabase_request).migrate()
+            except Exception as error:logging.getLogger('listing.media').warning('Image migration stopped: exception_class=%s',type(error).__name__)
+        threading.Thread(target=migrate_legacy_images,daemon=True,name='listing-image-migration').start()
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()

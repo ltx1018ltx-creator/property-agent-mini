@@ -182,6 +182,12 @@ $('#listingPhoto').onchange=async e=>{const files=[...e.target.files];if(files.l
 function listingPayload(x){const {_ownerId,_createdAt,id,...payload}=x;return payload}
 async function persistListing(listing,{photosChanged=false}={}){
  const payload=listingPayload(listing);
+ if((!listing.id||photosChanged)&&Array.isArray(payload.photos)&&payload.photos.some(p=>typeof p==='string'&&p.startsWith('data:image/'))){
+  const uploaded=await fetch('/api/listing-images',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({photos:payload.photos}),signal:AbortSignal.timeout(120000)});
+  const result=await uploaded.json();
+  if(!uploaded.ok||!Array.isArray(result.photos))throw Error(result.error||'Photos were not uploaded. Please retry.');
+  payload.photos=result.photos;listing={...listing,photos:result.photos};
+ }
  if(listing.id){
   if(!photosChanged){delete payload.photos;delete payload.photo}
   const row=await sbJson('/rest/v1/rpc/update_listing_details',{method:'POST',token:session.access_token,timeoutMs:photosChanged?45000:15000,body:JSON.stringify({listing_id:listing.id,changes:payload})});
@@ -302,7 +308,7 @@ $('#exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(db,null,2)],{ty
 function toast(s){const x=$('#toast');x.textContent=s;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),1800)}
 function fillListingOptions(){const replace=(el,html)=>{if(!el.multiple){el.innerHTML=html;return}const selected=new Set(selectedFilterValues(el));el.innerHTML=html;[...el.options].forEach(option=>option.selected=selected.has(option.value));el._rebuildFilterUI?.()},add=(el,items,first='')=>replace(el,(first?`<option value="">${first}</option>`:'')+items.map(x=>`<option>${esc(x)}</option>`).join('')),locations=[...new Set([...listingLocations,...(db?.listings||[]).map(x=>x.locationArea||'Needs review').filter(Boolean)])].sort(),prices=Array.from({length:20},(_,i)=>{const max=(i+1)*100000;return `<option value="${i?i*100000+1:0}-${max}">${(i+1)*100}k</option>`}).join('')+'<option value="2000001-Infinity">Above 2m</option>';$('#listingLocationOptions').innerHTML=locations.map(x=>`<option value="${esc(x)}">`).join('');add($('#listingPropertyType'),propertyTypes,'Choose property type');add($('#listingLocationFilter'),locations);add($('#listingTypeFilter'),propertyTypes);add($('#listingSubtypeFilter'),propertySubtypes);replace($('#listingPriceFilter'),prices);add($('#leadPropertyType'),propertyTypes,'Any property type');['listingLocationFilter','listingTypeFilter','listingSubtypeFilter','listingTenureFilter','listingPriceFilter'].forEach(id=>enhanceListingFilter($('#'+id)))}
 async function loadTeamListings(){
- const pageSize=5,rows=[];
+ const pageSize=50,rows=[];
  for(let offset=0;;offset+=pageSize){
   const page=await sbJson(`/rest/v1/team_listings?select=id,owner_id,listing,created_at&order=created_at.desc&limit=${pageSize}&offset=${offset}`,{token:session.access_token});
   rows.push(...page);

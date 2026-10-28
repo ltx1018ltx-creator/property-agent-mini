@@ -225,6 +225,37 @@ Run all tests with:
 python3 -m unittest discover -v
 ```
 
+## Listing image bandwidth optimization
+
+Apply `supabase/migrations/20261028055551_compare_and_swap_listing_photo_migration.sql`
+before deploying this release (already applied to the linked project). It grants
+only the server role permission to compare-and-swap legacy image payloads.
+
+The web service starts a resumable background conversion ten seconds after
+startup when its existing server-only Supabase key is configured. Set
+`LISTING_IMAGE_MIGRATION_ENABLED=false` to disable it. Original listing and share
+snapshots are saved as verified gzip objects in the **private**
+`listing-image-backups` bucket before any record changes. Images are copied
+without recompression to content-addressed public `listing-images/optimized/`
+objects, verified by SHA-256, and given a one-year cache lifetime. Original
+embedded bytes remain in private backups. Existing share IDs and listing IDs
+stay the same; an intervening edit causes that record to be skipped.
+
+Only photo fields and photos inside share collections are converted. The script
+does not delete listings, messages, leads, cases, or private ingestion objects.
+Logs contain aggregate counts and exception class names only.
+
+Active members upload new compressed photos through authenticated
+`POST /api/listing-images` before saving a listing; a failed upload prevents the
+save. Browser code receives public image URLs and never the service-role key.
+The public catalog continues loading one cover per card and fetches the full
+photo URL array only when opening details. No base64 image is needed in normal
+list responses after migration. The internal list uses 50-row metadata pages.
+
+If reverting application code, retain the Storage objects so converted URLs
+remain valid. Restoring embedded photos, if ever necessary, requires an explicit
+restore from the private snapshots and should not overwrite later edits.
+
 ### Phase 3A rollback
 
 First set `AI_DRAFT_ENABLED=false` and redeploy. After completing any required
