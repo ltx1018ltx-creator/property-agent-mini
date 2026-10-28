@@ -52,6 +52,8 @@ PUBLIC_STATIC_FILES={
     '/catalog.css':'catalog.css',
     '/landing.css':'landing.css',
     '/photos.css':'photos.css',
+    '/listing-photo-editor.js':'listing-photo-editor.js',
+    '/listing-photo-editor.css':'listing-photo-editor.css',
     '/share.css':'share.css',
     '/styles.css':'styles.css',
     '/manifest.webmanifest':'manifest.webmanifest',
