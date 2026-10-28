@@ -1278,7 +1278,12 @@ if __name__=='__main__':
     if SUPABASE_SERVICE_ROLE_KEY and os.environ.get('LISTING_IMAGE_MIGRATION_ENABLED','true').lower()=='true':
         def migrate_legacy_images():
             time.sleep(10)
-            try:listing_media.MediaStore(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,_supabase_request).migrate()
+            try:
+                store=listing_media.MediaStore(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,_supabase_request)
+                for attempt in range(2):
+                    result=store.migrate()
+                    if not any(v['failed'] or v['concurrent_skipped'] for v in result.values()):break
+                    if attempt==0:time.sleep(15)
             except Exception as error:logging.getLogger('listing.media').warning('Image migration stopped: exception_class=%s',type(error).__name__)
         threading.Thread(target=migrate_legacy_images,daemon=True,name='listing-image-migration').start()
     ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
